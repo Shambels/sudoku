@@ -51,4 +51,6 @@
 input {
   padding-left: 20px;
   font-size: 20px;
+  color: transparent;
+  text-shadow: 0 0 0 black;
 }

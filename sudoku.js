@@ -3,7 +3,8 @@ var problemGrid = document.getElementById('problem');
 var solutionGrid = document.getElementById('solution');
 var alert = document.getElementById('alert');
 var selected;
-var s = Array.from(solutionGrid.children);
+var i;
+var s = Array.from(problemGrid.children);
 
 function displaySolution(grid) {
   let solutions = Array.from(solutionGrid.children);
@@ -12,6 +13,7 @@ function displaySolution(grid) {
       solutions[y + (x * grid.length)].innerHTML = grid[x][y];
     }
   }
+  alert.innerHTML = "Done"
 }
 
 function getPossibleEntries(grid, i, j) {
@@ -68,6 +70,24 @@ function getPossibleEntries(grid, i, j) {
   return possibleEntries;
 }
 
+function handleKeyboardEvents(target) {
+  target.addEventListener('keydown', keyBindings);
+}
+
+function hasEnoughClues(inputs) {
+  let clues = [];
+  inputs.forEach(spot => {
+    if (spot.value.length > 0) {
+      clues.push(spot);
+    }
+  });
+  if (clues.length > 16) {
+    return true;
+  }
+  return false;
+
+}
+
 function isEmpty(inputs) {
   let empty = true;
   inputs.forEach(spot => {
@@ -107,6 +127,63 @@ function readGrid(inputs) {
   return grid;
 }
 
+function keyBindings() {
+  event.preventDefault();
+  console.log(event.which);
+  switch (event.which) {
+    // LEFT
+    case 37:
+      i = (s.indexOf(selected)) - 1;
+      if (i < 0) {
+        i = s.indexOf(selected);
+      }
+      selectSpot(s[i]);
+      break;
+      // UP
+    case 38:
+      i = (s.indexOf(selected)) - 9;
+      if (i < 0) {
+        i = s.indexOf(selected);
+      }
+      selectSpot(s[i]);
+      break;
+      // RIGHT
+    case 39:
+      i = (s.indexOf(selected)) + 1;
+      if (i > 80) {
+        i = s.indexOf(selected);
+      }
+      selectSpot(s[i]);
+      break;
+      // DOWN 
+    case 40:
+      i = (s.indexOf(selected)) + 9;
+      if (i > 80) {
+        i = s.indexOf(selected);
+      }
+      selectSpot(s[i]);
+      break;
+    case 8:
+      selected.value = "";
+    default:
+      break;
+  }
+  // NUMBERS
+  if (event.key >= 0 && event.key < 10) {
+    selected.value = event.key;
+  }
+}
+
+function selectSpot(target) {
+  s.forEach(element => {
+    element.style.backgroundColor = " #fff"
+  });
+  selected = target;
+  selected.style.outline = "none";
+  selected.style.backgroundColor = "lightgray";
+  handleKeyboardEvents(target);
+}
+
 function solve(grid) {
   let i = 0;
   let j = 0;
@@ -137,56 +214,26 @@ function solve(grid) {
   }
 }
 
-function setup() {  
+function setup() {
   for (let i = 0; i < problemGrid.children.length; i++) {
     const element = problemGrid.children[i];
     element.addEventListener('click', () => {
-      select(element);            
+      selectSpot(element);
     });
   }
-    
-  }
-  
-function handleKeyboardEvents(target) {
-  target.addEventListener('keydown', () => {
-    console.log(event.which);
-    console.log(target);    
-    switch (event.which) {
-      // LEFT
-      case 37:
-        select(s[i-1]);
-        break;
-        // UP
-      case 38:
-        break;
-        // RIGHT
-      case 39:
-        // selected = problemGrid.children[i + 1];
-        break;
-        // DOWN 
-      case 40:
-        break;
-      default:
-        break;
-    }    
-  })  
-}
 
-function select(target) {
-  selected = target;
-  selected.style.outlineColor = "blue";
-  handleKeyboardEvents(target);
 }
 
 function start() {
-  let inputs = Array.from(problemGrid.children);
-  if (isEmpty(inputs)) {
-    alert.innerHTML = "Grid is empty. Please Fill it"
-  } else {
-    let grid = readGrid(inputs);
+  if (hasEnoughClues(s)) {
+    alert.innerHTML = "Wait for It..."
+    let grid = readGrid(s);
     solve(grid);
+  } else {
+    alert.innerHTML = "Not Enough Clues ! Minimum is 17."
   }
 }
+
 setup();
 solveBtn.addEventListener('click', () => {
   start();
