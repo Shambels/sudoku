@@ -1,51 +1,20 @@
-function exportToTxt(board) {
-  let string = "";
-  string = string + "---------------------\n";
-  for (let x = 0; x < 9; x++) {
-    if (x === 3 || x === 6) {
-      string = string + "---------------------\n";
-    }
-    for (let y = 0; y < 9; y++) {
-      if (y === 3 || y === 6) {
-        string = string + "|";
-      }
-      string = string + board[x][y].str() + " ";
-    }
-    string = string + "\n";
-  }
-  string = string + "---------------------\n"
-  return string
-}
+var solveBtn = document.getElementById('solveBtn');
+var problemGrid = document.getElementById('problem');
+var solutionGrid = document.getElementById('solution');
+var alert = document.getElementById('alert');
+var selected;
+var s = Array.from(solutionGrid.children);
 
-function exportToConsole(board) {  
-  console.log("---------------------");
-  for (let x = 0; x < 9; x++) {
-    if (x === 3 || x === 6) {
-      console.log("---------------------");
-    }
-    for (let y = 0; y < 9; y++) {
-      if (y === 3 || y === 6) {
-        console.log("|");
-      }
-      console.log(board[x][y]);
-    }
-    console.log();
-  }
-  console.log("---------------------");
-}
-
-function isFull(board) {
-  for (let x = 0; x < 9; x++) {
-    for (let y = 0; y < 9; y++) {
-      if (board[x][y] == 0) {
-        return false;
-      }
+function displaySolution(grid) {
+  let solutions = Array.from(solutionGrid.children);
+  for (let x = 0; x < grid.length; x++) {
+    for (let y = 0; y < grid[x].length; y++) {
+      solutions[y + (x * grid.length)].innerHTML = grid[x][y];
     }
   }
-  return true;
 }
 
-function getPossibleEntries(board, i, j) {  
+function getPossibleEntries(grid, i, j) {
   let possibleEntries = [];
 
   for (let n = 1; n < 10; n++) {
@@ -53,15 +22,15 @@ function getPossibleEntries(board, i, j) {
   }
 
   // Horizontal
-  for (let x = 0; x < 9; x++) {
-    if (board[i][x] != 0) {
-      possibleEntries[board[i][x]] = 1;
+  for (let x = 0; x < grid.length; x++) {
+    if (grid[i][x] != 0) {
+      possibleEntries[grid[i][x]] = 1;
     }
   }
   // Vertical
-  for (let y = 0; y < 9; y++) {
-    if (board[y][j] != 0) {
-      possibleEntries[board[y][j]] = 1;
+  for (let y = 0; y < grid.length; y++) {
+    if (grid[y][j] != 0) {
+      possibleEntries[grid[y][j]] = 1;
     }
   }
   // Squares
@@ -83,8 +52,8 @@ function getPossibleEntries(board, i, j) {
   }
   for (let x = k; x < k + 3; x++) {
     for (let y = l; y < l + 3; y++) {
-      if (board[x][y] != 0) {
-        possibleEntries[board[x][y]] = 1;
+      if (grid[x][y] != 0) {
+        possibleEntries[grid[x][y]] = 1;
       }
     }
   }
@@ -99,137 +68,126 @@ function getPossibleEntries(board, i, j) {
   return possibleEntries;
 }
 
-function solve(board) { 
-  // console.log('ENTER'); 
+function isEmpty(inputs) {
+  let empty = true;
+  inputs.forEach(spot => {
+    if (spot.value.length > 0) {
+      empty = false
+    }
+  });
+  return empty;
+}
+
+function isFull(grid) {
+  for (let x = 0; x < grid.length; x++) {
+    for (let y = 0; y < grid[x].length; y++) {
+      if (grid[x][y] == 0) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function readGrid(inputs) {
+  let value;
+  let grid = new Array(9);
+
+  for (let x = 0; x < grid.length; x++) {
+    grid[x] = new Array(9);
+    for (let y = 0; y < grid[x].length; y++) {
+      value = inputs[y + (x * grid.length)].value
+      if (value.length > 0) {
+        grid[x][y] = parseInt(value, 10)
+      } else {
+        grid[x][y] = 0;
+      }
+    }
+  }
+  return grid;
+}
+
+function solve(grid) {
   let i = 0;
   let j = 0;
-  if (isFull(board)) {
-    console.log("Success");
-    exportToConsole(board);
+  if (isFull(grid)) {
+    displaySolution(grid);
     return;
-
   } else {
-    // Find first vacant spot    
-    for (let x = 0; x < 9; x++) {
-      for (let y = 0; y < 9; y++) {
-        if (board[x][y] == 0) {
+    for (let x = 0; x < grid.length; x++) {
+      for (let y = 0; y < grid[x].length; y++) {
+        if (grid[x][y] == 0) {
           i = x;
           j = y;
           break;
-        }
-        else {
+        } else {
           continue;
         }
       }
-      // break;
     }
-    let possibilities = getPossibleEntries(board, i, j);    
-    // console.log('possibilities: ',i, j,  possibilities);
+    let possibilities = getPossibleEntries(grid, i, j);
     for (let n = 1; n < 10; n++) {
-      if (possibilities[n] != 0) {        
-        board[i][j] = possibilities[n];
-        // setTimeout(() => {
-          solve(board);
-        // }, 1);
+      if (possibilities[n] != 0) {
+        grid[i][j] = possibilities[n];
+        solve(grid);
       }
     }
-    // BackTrack
-    // console.log('backtrack');
-    board[i][j] = 0;
-  }
-  if (board[i][j] != 0) {
-    // console.log('EXIT');  
+    // BackTrack    
+    grid[i][j] = 0;
   }
 }
 
-function startBoard() {
-  let sudokuBoard = new Array(9);
-  for (let x = 0; x < 9; x++) {
-    sudokuBoard[x] = new Array(9);
+function setup() {  
+  for (let i = 0; i < problemGrid.children.length; i++) {
+    const element = problemGrid.children[i];
+    element.addEventListener('click', () => {
+      select(element);            
+    });
   }
-  sudokuBoard[0][0] = 0
-  sudokuBoard[0][1] = 0
-  sudokuBoard[0][2] = 8
-  sudokuBoard[0][3] = 7
-  sudokuBoard[0][4] = 3
-  sudokuBoard[0][5] = 4
-  sudokuBoard[0][6] = 1
-  sudokuBoard[0][7] = 6
-  sudokuBoard[0][8] = 0
-  sudokuBoard[1][0] = 1
-  sudokuBoard[1][1] = 0
-  sudokuBoard[1][2] = 0
-  sudokuBoard[1][3] = 0
-  sudokuBoard[1][4] = 8
-  sudokuBoard[1][5] = 5
-  sudokuBoard[1][6] = 0
-  sudokuBoard[1][7] = 0
-  sudokuBoard[1][8] = 0
-  sudokuBoard[2][0] = 7
-  sudokuBoard[2][1] = 0
-  sudokuBoard[2][2] = 0
-  sudokuBoard[2][3] = 0
-  sudokuBoard[2][4] = 1
-  sudokuBoard[2][5] = 9
-  sudokuBoard[2][6] = 0
-  sudokuBoard[2][7] = 0
-  sudokuBoard[2][8] = 0
-  sudokuBoard[3][0] = 0
-  sudokuBoard[3][1] = 0
-  sudokuBoard[3][2] = 3
-  sudokuBoard[3][3] = 0
-  sudokuBoard[3][4] = 9
-  sudokuBoard[3][5] = 0
-  sudokuBoard[3][6] = 0
-  sudokuBoard[3][7] = 0
-  sudokuBoard[3][8] = 0
-  sudokuBoard[4][0] = 0
-  sudokuBoard[4][1] = 2
-  sudokuBoard[4][2] = 0
-  sudokuBoard[4][3] = 5
-  sudokuBoard[4][4] = 0
-  sudokuBoard[4][5] = 0
-  sudokuBoard[4][6] = 9
-  sudokuBoard[4][7] = 1
-  sudokuBoard[4][8] = 3
-  sudokuBoard[5][0] = 9
-  sudokuBoard[5][1] = 0
-  sudokuBoard[5][2] = 0
-  sudokuBoard[5][3] = 3
-  sudokuBoard[5][4] = 0
-  sudokuBoard[5][5] = 0
-  sudokuBoard[5][6] = 0
-  sudokuBoard[5][7] = 0
-  sudokuBoard[5][8] = 7
-  sudokuBoard[6][0] = 0
-  sudokuBoard[6][1] = 0
-  sudokuBoard[6][2] = 6
-  sudokuBoard[6][3] = 0
-  sudokuBoard[6][4] = 0
-  sudokuBoard[6][5] = 3
-  sudokuBoard[6][6] = 8
-  sudokuBoard[6][7] = 0
-  sudokuBoard[6][8] = 1
-  sudokuBoard[7][0] = 3
-  sudokuBoard[7][1] = 0
-  sudokuBoard[7][2] = 0
-  sudokuBoard[7][3] = 0
-  sudokuBoard[7][4] = 0
-  sudokuBoard[7][5] = 0
-  sudokuBoard[7][6] = 0
-  sudokuBoard[7][7] = 2
-  sudokuBoard[7][8] = 0
-  sudokuBoard[8][0] = 0
-  sudokuBoard[8][1] = 0
-  sudokuBoard[8][2] = 0
-  sudokuBoard[8][3] = 9
-  sudokuBoard[8][4] = 0
-  sudokuBoard[8][5] = 0
-  sudokuBoard[8][6] = 3
-  sudokuBoard[8][7] = 4
-  sudokuBoard[8][8] = 0  
-  exportToConsole(sudokuBoard);
-  solve(sudokuBoard);
+    
+  }
+  
+function handleKeyboardEvents(target) {
+  target.addEventListener('keydown', () => {
+    console.log(event.which);
+    console.log(target);    
+    switch (event.which) {
+      // LEFT
+      case 37:
+        select(s[i-1]);
+        break;
+        // UP
+      case 38:
+        break;
+        // RIGHT
+      case 39:
+        // selected = problemGrid.children[i + 1];
+        break;
+        // DOWN 
+      case 40:
+        break;
+      default:
+        break;
+    }    
+  })  
 }
 
-startBoard();
+function select(target) {
+  selected = target;
+  selected.style.outlineColor = "blue";
+  handleKeyboardEvents(target);
+}
+
+function start() {
+  let inputs = Array.from(problemGrid.children);
+  if (isEmpty(inputs)) {
+    alert.innerHTML = "Grid is empty. Please Fill it"
+  } else {
+    let grid = readGrid(inputs);
+    solve(grid);
+  }
+}
+setup();
+solveBtn.addEventListener('click', () => {
+  start();
+})

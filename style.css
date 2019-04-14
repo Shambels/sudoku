@@ -1,0 +1,54 @@
+#container {
+  display: flex;
+  justify-content: center;
+}
+
+#problem,
+#solution {
+  display: grid;
+  grid-template-columns: 50px repeat(4, 50px 50px);
+  text-align: center;
+  margin-top: 50px;
+  font-size: 20px;
+}
+
+#solveBtn {
+  margin-top: 50px;
+  padding: 0 50px;
+}
+
+#alert {
+  display: flex;
+  justify-content: center;
+}
+
+.case {
+  padding-top: 12.5px;
+  padding-bottom: 12.5px;
+  justify-content: center;
+  align-items: center;
+  border: solid black 1px;
+}
+
+.x3 {
+  border-right: solid black 3px;
+  border-bottom: solid black 1px;
+  border-left: solid black 1px;
+  border-top: solid black 1px;
+}
+
+.y3 {
+  border-bottom: solid black 3px;
+  border-right: solid black 1px;
+  border-left: solid black 1px;
+  border-top: solid black 1px;
+}
+
+.x3.y3 {
+  border-right: solid black 3px !important;
+}
+
+input {
+  padding-left: 20px;
+  font-size: 20px;
+}

@@ -1,15 +1,188 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="ie=edge">
-  <title>Document</title>
+  <link rel="stylesheet" href="style.css">
+  <title>Sudoku</title>
 </head>
+
 <body>
-  <div id="sudoku">
-    
-  </div>
+  <section id="container">
+    <div id="problem">
+      <input maxlength="1" min="1" max="9" class="case c1">
+      <input maxlength="1" min="1" max="9" class="case c2">
+      <input maxlength="1" min="1" max="9" class="case c3 x3">
+      <input maxlength="1" min="1" max="9" class="case c4">
+      <input maxlength="1" min="1" max="9" class="case c5">
+      <input maxlength="1" min="1" max="9" class="case c6 x3">
+      <input maxlength="1" min="1" max="9" class="case c7">
+      <input maxlength="1" min="1" max="9" class="case c8">
+      <input maxlength="1" min="1" max="9" class="case c9">
+      <input maxlength="1" min="1" max="9" class="case c10">
+      <input maxlength="1" min="1" max="9" class="case c11">
+      <input maxlength="1" min="1" max="9" class="case c12 x3">
+      <input maxlength="1" min="1" max="9" class="case c13">
+      <input maxlength="1" min="1" max="9" class="case c14">
+      <input maxlength="1" min="1" max="9" class="case c15 x3">
+      <input maxlength="1" min="1" max="9" class="case c16">
+      <input maxlength="1" min="1" max="9" class="case c17">
+      <input maxlength="1" min="1" max="9" class="case c18">
+      <input maxlength="1" min="1" max="9" class="case c19 y3">
+      <input maxlength="1" min="1" max="9" class="case c20 y3">
+      <input maxlength="1" min="1" max="9" class="case c21 y3 x3">
+      <input maxlength="1" min="1" max="9" class="case c22 y3">
+      <input maxlength="1" min="1" max="9" class="case c23 y3">
+      <input maxlength="1" min="1" max="9" class="case c24 y3 x3">
+      <input maxlength="1" min="1" max="9" class="case c25 y3">
+      <input maxlength="1" min="1" max="9" class="case c26 y3">
+      <input maxlength="1" min="1" max="9" class="case c27 y3">
+      <input maxlength="1" min="1" max="9" class="case c28">
+      <input maxlength="1" min="1" max="9" class="case c29">
+      <input maxlength="1" min="1" max="9" class="case c30 x3">
+      <input maxlength="1" min="1" max="9" class="case c31">
+      <input maxlength="1" min="1" max="9" class="case c32">
+      <input maxlength="1" min="1" max="9" class="case c33 x3">
+      <input maxlength="1" min="1" max="9" class="case c34">
+      <input maxlength="1" min="1" max="9" class="case c35">
+      <input maxlength="1" min="1" max="9" class="case c36">
+      <input maxlength="1" min="1" max="9" class="case c37">
+      <input maxlength="1" min="1" max="9" class="case c38">
+      <input maxlength="1" min="1" max="9" class="case c39 x3">
+      <input maxlength="1" min="1" max="9" class="case c40">
+      <input maxlength="1" min="1" max="9" class="case c41">
+      <input maxlength="1" min="1" max="9" class="case c42 x3">
+      <input maxlength="1" min="1" max="9" class="case c43">
+      <input maxlength="1" min="1" max="9" class="case c44">
+      <input maxlength="1" min="1" max="9" class="case c45">
+      <input maxlength="1" min="1" max="9" class="case c46 y3">
+      <input maxlength="1" min="1" max="9" class="case c47 y3">
+      <input maxlength="1" min="1" max="9" class="case c48 y3 x3">
+      <input maxlength="1" min="1" max="9" class="case c49 y3">
+      <input maxlength="1" min="1" max="9" class="case c50 y3">
+      <input maxlength="1" min="1" max="9" class="case c51 y3 x3">
+      <input maxlength="1" min="1" max="9" class="case c52 y3">
+      <input maxlength="1" min="1" max="9" class="case c53 y3">
+      <input maxlength="1" min="1" max="9" class="case c54 y3">
+      <input maxlength="1" min="1" max="9" class="case c55">
+      <input maxlength="1" min="1" max="9" class="case c56">
+      <input maxlength="1" min="1" max="9" class="case c57 x3">
+      <input maxlength="1" min="1" max="9" class="case c58">
+      <input maxlength="1" min="1" max="9" class="case c59">
+      <input maxlength="1" min="1" max="9" class="case c60 x3">
+      <input maxlength="1" min="1" max="9" class="case c61">
+      <input maxlength="1" min="1" max="9" class="case c62">
+      <input maxlength="1" min="1" max="9" class="case c63">
+      <input maxlength="1" min="1" max="9" class="case c64">
+      <input maxlength="1" min="1" max="9" class="case c65">
+      <input maxlength="1" min="1" max="9" class="case c66 x3">
+      <input maxlength="1" min="1" max="9" class="case c67">
+      <input maxlength="1" min="1" max="9" class="case c68">
+      <input maxlength="1" min="1" max="9" class="case c69 x3">
+      <input maxlength="1" min="1" max="9" class="case c70">
+      <input maxlength="1" min="1" max="9" class="case c71">
+      <input maxlength="1" min="1" max="9" class="case c72">
+      <input maxlength="1" min="1" max="9" class="case c73">
+      <input maxlength="1" min="1" max="9" class="case c74">
+      <input maxlength="1" min="1" max="9" class="case c75 x3">
+      <input maxlength="1" min="1" max="9" class="case c76">
+      <input maxlength="1" min="1" max="9" class="case c77">
+      <input maxlength="1" min="1" max="9" class="case c78 x3">
+      <input maxlength="1" min="1" max="9" class="case c79">
+      <input maxlength="1" min="1" max="9" class="case c80">
+      <input maxlength="1" min="1" max="9" class="case c81">
+    </div>
+    <button id="solveBtn">=></button>
+    <div id="solution">
+      <div class="case case1"></div>
+      <div class="case case2"></div>
+      <div class="case case3 x3"></div>
+      <div class="case case4"></div>
+      <div class="case case5"></div>
+      <div class="case case6 x3"></div>
+      <div class="case case7"></div>
+      <div class="case case8"></div>
+      <div class="case case9"></div>
+      <div class="case case10"></div>
+      <div class="case case11"></div>
+      <div class="case case12 x3"></div>
+      <div class="case case13"></div>
+      <div class="case case14"></div>
+      <div class="case case15 x3"></div>
+      <div class="case case16"></div>
+      <div class="case case17"></div>
+      <div class="case case18"></div>
+      <div class="case case19 y3"></div>
+      <div class="case case20 y3"></div>
+      <div class="case case21 y3 x3"></div>
+      <div class="case case22 y3"></div>
+      <div class="case case23 y3"></div>
+      <div class="case case24 y3 x3"></div>
+      <div class="case case25 y3"></div>
+      <div class="case case26 y3"></div>
+      <div class="case case27 y3"></div>
+      <div class="case case28"></div>
+      <div class="case case29"></div>
+      <div class="case case30 x3"></div>
+      <div class="case case31"></div>
+      <div class="case case32"></div>
+      <div class="case case33 x3"></div>
+      <div class="case case34"></div>
+      <div class="case case35"></div>
+      <div class="case case36"></div>
+      <div class="case case37"></div>
+      <div class="case case38"></div>
+      <div class="case case39 x3"></div>
+      <div class="case case40"></div>
+      <div class="case case41"></div>
+      <div class="case case42 x3"></div>
+      <div class="case case43"></div>
+      <div class="case case44"></div>
+      <div class="case case45"></div>
+      <div class="case case46 y3"></div>
+      <div class="case case47 y3"></div>
+      <div class="case case48 y3 x3"></div>
+      <div class="case case49 y3"></div>
+      <div class="case case50 y3"></div>
+      <div class="case case51 y3 x3"></div>
+      <div class="case case52 y3"></div>
+      <div class="case case53 y3"></div>
+      <div class="case case54 y3"></div>
+      <div class="case case55"></div>
+      <div class="case case56"></div>
+      <div class="case case57 x3"></div>
+      <div class="case case58"></div>
+      <div class="case case59"></div>
+      <div class="case case60 x3"></div>
+      <div class="case case61"></div>
+      <div class="case case62"></div>
+      <div class="case case63"></div>
+      <div class="case case64"></div>
+      <div class="case case65"></div>
+      <div class="case case66 x3"></div>
+      <div class="case case67"></div>
+      <div class="case case68"></div>
+      <div class="case case69 x3"></div>
+      <div class="case case70"></div>
+      <div class="case case71"></div>
+      <div class="case case72"></div>
+      <div class="case case73"></div>
+      <div class="case case74"></div>
+      <div class="case case75 x3"></div>
+      <div class="case case76"></div>
+      <div class="case case77"></div>
+      <div class="case case78 x3"></div>
+      <div class="case case79"></div>
+      <div class="case case80"></div>
+      <div class="case case81"></div>
+    </div>
+  </section>
+  <section>
+    <h1 id="alert"></h1>
+  </section>
   <script src="sudoku.js"></script>
 </body>
+
 </html>
