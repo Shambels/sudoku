@@ -128,8 +128,7 @@ function readGrid(inputs) {
 }
 
 function keyBindings() {
-  event.preventDefault();
-  console.log(event.which);
+  event.preventDefault();  
   switch (event.which) {
     // LEFT
     case 37:
@@ -164,6 +163,9 @@ function keyBindings() {
       selectSpot(s[i]);
       break;
     case 8:
+      selected.value = "";
+      break;
+    case 46:
       selected.value = "";
     default:
       break;
