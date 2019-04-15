@@ -77,7 +77,7 @@ function handleKeyboardEvents(target) {
 function hasEnoughClues(inputs) {
   let clues = [];
   inputs.forEach(spot => {
-    if (spot.value.length > 0) {
+    if (spot.value.length > 0 && spot.value != 0) {
       clues.push(spot);
     }
   });
