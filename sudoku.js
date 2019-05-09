@@ -4,7 +4,8 @@ var solutionGrid = document.getElementById('solution');
 var alert = document.getElementById('alert');
 var selected;
 var i;
-var s = Array.from(problemGrid.children);
+var clues = Array.from(problemGrid.children);
+var size = 9;
 
 function displaySolution(grid) {
   let solutions = Array.from(solutionGrid.children);
@@ -111,10 +112,10 @@ function isFull(grid) {
 
 function readGrid(inputs) {
   let value;
-  let grid = new Array(9);
+  let grid = new Array(size);
 
   for (let x = 0; x < grid.length; x++) {
-    grid[x] = new Array(9);
+    grid[x] = new Array(size);
     for (let y = 0; y < grid[x].length; y++) {
       value = inputs[y + (x * grid.length)].value
       if (value.length > 0) {
@@ -132,35 +133,35 @@ function keyBindings() {
   switch (event.which) {
     // LEFT
     case 37:
-      i = (s.indexOf(selected)) - 1;
+      i = (clues.indexOf(selected)) - 1;
       if (i < 0) {
-        i = s.indexOf(selected);
+        i = clues.indexOf(selected);
       }
-      selectSpot(s[i]);
+      selectSpot(clues[i]);
       break;
       // UP
     case 38:
-      i = (s.indexOf(selected)) - 9;
+      i = (clues.indexOf(selected)) - 9;
       if (i < 0) {
-        i = s.indexOf(selected);
+        i = clues.indexOf(selected);
       }
-      selectSpot(s[i]);
+      selectSpot(clues[i]);
       break;
       // RIGHT
     case 39:
-      i = (s.indexOf(selected)) + 1;
+      i = (clues.indexOf(selected)) + 1;
       if (i > 80) {
-        i = s.indexOf(selected);
+        i = clues.indexOf(selected);
       }
-      selectSpot(s[i]);
+      selectSpot(clues[i]);
       break;
       // DOWN 
     case 40:
-      i = (s.indexOf(selected)) + 9;
+      i = (clues.indexOf(selected)) + 9;
       if (i > 80) {
-        i = s.indexOf(selected);
+        i = clues.indexOf(selected);
       }
-      selectSpot(s[i]);
+      selectSpot(clues[i]);
       break;
     case 8:
       selected.value = "";
@@ -177,7 +178,7 @@ function keyBindings() {
 }
 
 function selectSpot(target) {
-  s.forEach(element => {
+  clues.forEach(element => {
     element.style.backgroundColor = " #fff"
   });
   selected = target;
@@ -227,9 +228,9 @@ function setup() {
 }
 
 function start() {
-  if (hasEnoughClues(s)) {
-    alert.innerHTML = "Wait for It..."
-    let grid = readGrid(s);
+  if (hasEnoughClues(clues)) {
+    alert.innerHTML = "Wait for It...";
+    let grid = readGrid(clues);
     solve(grid);
   } else {
     alert.innerHTML = "Not Enough Clues ! Minimum is 17."
