@@ -1,7 +1,7 @@
 var solveBtn = document.getElementById('solveBtn');
 var problemGrid = document.getElementById('problem');
 var solutionGrid = document.getElementById('solution');
-var alert = document.getElementById('alert');
+var alert_title = document.getElementById('alert');
 var selected;
 var i;
 var clues = Array.from(problemGrid.children);
@@ -14,7 +14,7 @@ function displaySolution(grid) {
       solutions[y + (x * grid.length)].innerHTML = grid[x][y];
     }
   }
-  alert.innerHTML = "Done"
+  alert_title.innerHTML = "Done"
 }
 
 function getPossibleEntries(grid, i, j) {
@@ -129,7 +129,7 @@ function readGrid(inputs) {
 }
 
 function keyBindings() {
-  event.preventDefault();  
+  event.preventDefault();
   switch (event.which) {
     // LEFT
     case 37:
@@ -139,7 +139,7 @@ function keyBindings() {
       }
       selectSpot(clues[i]);
       break;
-      // UP
+    // UP
     case 38:
       i = (clues.indexOf(selected)) - 9;
       if (i < 0) {
@@ -147,7 +147,7 @@ function keyBindings() {
       }
       selectSpot(clues[i]);
       break;
-      // RIGHT
+    // RIGHT
     case 39:
       i = (clues.indexOf(selected)) + 1;
       if (i > 80) {
@@ -155,7 +155,7 @@ function keyBindings() {
       }
       selectSpot(clues[i]);
       break;
-      // DOWN 
+    // DOWN 
     case 40:
       i = (clues.indexOf(selected)) + 9;
       if (i > 80) {
@@ -320,20 +320,20 @@ function start() {
   let conflicts = findConflicts(grid);
   if (conflicts.size > 0) {
     highlightConflicts(conflicts);
-    alert.innerHTML = "Invalid Clues ! Check the highlighted cells.";
+    alert_title.innerHTML = "Invalid Clues ! Check the highlighted cells.";
     return;
   }
 
   if (!hasEnoughClues(clues)) {
-    alert.innerHTML = "Not Enough Clues ! Minimum is 17.";
+    alert_title.innerHTML = "Not Enough Clues ! Minimum is 17.";
     return;
   }
 
-  alert.innerHTML = "Wait for It...";
+  alert_title.innerHTML = "Wait for It...";
   if (solve(grid)) {
     displaySolution(grid);
   } else {
-    alert.innerHTML = "No Solution Found.";
+    alert_title.innerHTML = "No Solution Found.";
   }
 }
 
