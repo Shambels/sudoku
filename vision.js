@@ -19,6 +19,8 @@ var SudokuVision = (function () {
     // 2.2 adaptive threshold (Bradley-Roth)
     thresholdWindowDivisor: 12,   // window = round(width / divisor), forced odd
     thresholdBias: 0.92,          // ink when pixel < bias * windowMean
+    autoPolarity: true,           // dark-mode screenshots are light ink on dark paper
+    polarityInkLimit: 0.35,       // above this ink fraction, the image is inverted
 
     // 2.3 grid detection
     minGridAreaFraction: 0.15,    // largest blob must cover this much of the frame
@@ -124,6 +126,9 @@ var SudokuVision = (function () {
     canvas.width = Math.max(1, Math.round(w * scale));
     canvas.height = Math.max(1, Math.round(h * scale));
     canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    canvas.sourceWidth = w;
+    canvas.sourceHeight = h;
+    canvas.sourceScale = scale;   // working px = source px * scale
     return canvas;
   }
 
@@ -180,23 +185,290 @@ var SudokuVision = (function () {
     return { width: imageData.width, height: imageData.height, gray: gray };
   }
 
-  // 2.2 -> Uint8Array, 1 = ink
-  function adaptiveThreshold(/* grayImage, opts */) {
-    throw notImplemented('adaptiveThreshold', '2.2');
+  // 2.2 Bradley-Roth adaptive mean threshold.
+  // A global threshold (Otsu) fails on any photo with a shadow or a page curl,
+  // which is the normal case. The integral image makes the local mean O(1) per
+  // pixel, so this costs one pass regardless of window size.
+  // -> { ink: Uint8Array (1 = ink), width, height, inverted, inkFraction }
+  function adaptiveThreshold(img, opts) {
+    var w = img.width, h = img.height, g = img.gray;
+    var stride = w + 1;
+    var integral = new Float64Array(stride * (h + 1));
+    var x, y, i, rowSum;
+
+    for (y = 0; y < h; y++) {
+      rowSum = 0;
+      for (x = 0; x < w; x++) {
+        rowSum += g[y * w + x];
+        integral[(y + 1) * stride + (x + 1)] = integral[y * stride + (x + 1)] + rowSum;
+      }
+    }
+
+    var win = Math.max(3, Math.round(w / opts.thresholdWindowDivisor) | 1);
+    var r = win >> 1;
+    var ink = new Uint8Array(w * h);
+    var count = 0, x0, x1, y0, y1, area, sum;
+
+    for (y = 0; y < h; y++) {
+      y0 = y - r < 0 ? 0 : y - r;
+      y1 = y + r > h - 1 ? h - 1 : y + r;
+      for (x = 0; x < w; x++) {
+        x0 = x - r < 0 ? 0 : x - r;
+        x1 = x + r > w - 1 ? w - 1 : x + r;
+        area = (x1 - x0 + 1) * (y1 - y0 + 1);
+        sum = integral[(y1 + 1) * stride + (x1 + 1)] - integral[y0 * stride + (x1 + 1)] -
+              integral[(y1 + 1) * stride + x0] + integral[y0 * stride + x0];
+        i = y * w + x;
+        // g * area < mean * area * bias, without the division
+        if (g[i] * area < sum * opts.thresholdBias) { ink[i] = 1; count++; }
+      }
+    }
+
+    // A grid plus its clues is a few percent ink. Much more than that means the
+    // image is light-on-dark (a dark-mode screenshot), so flip it and carry on
+    // rather than handing the detector a frame-filling background blob.
+    var fraction = count / (w * h);
+    var inverted = false;
+    if (opts.autoPolarity && fraction > opts.polarityInkLimit) {
+      for (i = 0; i < ink.length; i++) { ink[i] = ink[i] ? 0 : 1; }
+      inverted = true;
+      fraction = 1 - fraction;
+    }
+
+    return { ink: ink, width: w, height: h, inverted: inverted, inkFraction: fraction };
   }
 
-  // 2.3 -> { corners: [{x,y} x4], source: 'blob' | 'fullFrame' } or null
-  function findGrid(/* binary, width, height, opts */) {
-    throw notImplemented('findGrid', '2.3');
+  // 2.3 The grid's border and lines form one big 8-connected blob. Label the
+  // binary image, take the largest component that covers a plausible share of the
+  // frame, and read its corners off the extremes of x+y and x-y.
+  // -> { corners: [{x,y}] TL,TR,BR,BL, source, rejected } or null
+  function findGrid(binary, opts) {
+    var w = binary.width, h = binary.height, ink = binary.ink;
+    var blob = largestBlob(ink, w, h, opts.minGridAreaFraction);
+    var rejected = null;
+
+    if (blob) {
+      var corners = [blob.minSum, blob.maxDiff, blob.maxSum, blob.minDiff]; // TL TR BR BL
+      rejected = quadProblem(corners, w, h, opts);
+      if (!rejected) {
+        return { corners: corners, source: 'blob', blob: blob, rejected: null };
+      }
+    }
+
+    // An already-cropped screenshot has no margin to find, so the frame itself is
+    // the right answer. But only fall back when a big structure was actually found
+    // and rejected: with no blob at all there is no evidence of a grid, and
+    // returning the frame would turn "nothing here" into a confident wrong answer.
+    if (opts.allowFullFrameFallback && blob) {
+      return {
+        corners: [{ x: 0, y: 0 }, { x: w - 1, y: 0 },
+                  { x: w - 1, y: h - 1 }, { x: 0, y: h - 1 }],
+        source: 'fullFrame', blob: blob,
+        rejected: rejected || 'no blob covered enough of the frame'
+      };
+    }
+    return null;
   }
 
-  // 2.4 -> canvas, 9 * cellSize square
-  function warpToSquare(/* grayImage, corners, opts */) {
-    throw notImplemented('warpToSquare', '2.4');
+  // Two-pass 8-connected labelling with union-find. 8-connected, not 4: a grid
+  // line in a rotated photo is a staircase, and 4-connectivity breaks it apart.
+  function largestBlob(ink, w, h, minAreaFraction) {
+    var labels = new Int32Array(w * h);
+    var parent = [0];
+    var next = 1, x, y, i, n, best;
+
+    function find(a) {
+      while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+      return a;
+    }
+    function union(a, b) {
+      a = find(a); b = find(b);
+      if (a !== b) { if (a < b) { parent[b] = a; } else { parent[a] = b; } }
+    }
+
+    var neighbours = [0, 0, 0, 0];
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) {
+        i = y * w + x;
+        if (!ink[i]) { continue; }
+        n = 0;
+        if (y > 0 && labels[i - w]) { neighbours[n++] = labels[i - w]; }
+        if (x > 0 && labels[i - 1]) { neighbours[n++] = labels[i - 1]; }
+        if (y > 0 && x > 0 && labels[i - w - 1]) { neighbours[n++] = labels[i - w - 1]; }
+        if (y > 0 && x < w - 1 && labels[i - w + 1]) { neighbours[n++] = labels[i - w + 1]; }
+        if (!n) {
+          parent[next] = next;
+          labels[i] = next++;
+        } else {
+          var min = neighbours[0], k;
+          for (k = 1; k < n; k++) { if (neighbours[k] < min) { min = neighbours[k]; } }
+          labels[i] = min;
+          for (k = 0; k < n; k++) { union(min, neighbours[k]); }
+        }
+      }
+    }
+
+    var count = new Int32Array(next);
+    var minX = new Int32Array(next), maxX = new Int32Array(next);
+    var minY = new Int32Array(next), maxY = new Int32Array(next);
+    var minSum = new Float64Array(next), maxSum = new Float64Array(next);
+    var minDiff = new Float64Array(next), maxDiff = new Float64Array(next);
+    var pMinSum = [], pMaxSum = [], pMinDiff = [], pMaxDiff = [];
+    minX.fill(w); minY.fill(h); maxX.fill(-1); maxY.fill(-1);
+    minSum.fill(Infinity); maxSum.fill(-Infinity);
+    minDiff.fill(Infinity); maxDiff.fill(-Infinity);
+
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) {
+        i = y * w + x;
+        if (!labels[i]) { continue; }
+        var root = find(labels[i]);
+        count[root]++;
+        if (x < minX[root]) { minX[root] = x; }
+        if (x > maxX[root]) { maxX[root] = x; }
+        if (y < minY[root]) { minY[root] = y; }
+        if (y > maxY[root]) { maxY[root] = y; }
+        var sum = x + y, diff = x - y;
+        if (sum < minSum[root]) { minSum[root] = sum; pMinSum[root] = { x: x, y: y }; }
+        if (sum > maxSum[root]) { maxSum[root] = sum; pMaxSum[root] = { x: x, y: y }; }
+        if (diff < minDiff[root]) { minDiff[root] = diff; pMinDiff[root] = { x: x, y: y }; }
+        if (diff > maxDiff[root]) { maxDiff[root] = diff; pMaxDiff[root] = { x: x, y: y }; }
+      }
+    }
+
+    var minArea = minAreaFraction * w * h;
+    best = 0;
+    for (i = 1; i < next; i++) {
+      if (!count[i]) { continue; }
+      var area = (maxX[i] - minX[i] + 1) * (maxY[i] - minY[i] + 1);
+      if (area < minArea) { continue; }
+      if (!best || count[i] > count[best]) { best = i; }
+    }
+    if (!best) { return null; }
+
+    return {
+      pixels: count[best],
+      bbox: { x: minX[best], y: minY[best],
+              w: maxX[best] - minX[best] + 1, h: maxY[best] - minY[best] + 1 },
+      minSum: pMinSum[best], maxSum: pMaxSum[best],
+      minDiff: pMinDiff[best], maxDiff: pMaxDiff[best]
+    };
+  }
+
+  // Returns null when the quad looks like a sudoku grid, or a reason when it does not.
+  function quadProblem(c, w, h, opts) {
+    var shortSide = Math.min(w, h), i;
+    var sides = [];
+    for (i = 0; i < 4; i++) {
+      sides.push(distance(c[i], c[(i + 1) % 4]));
+    }
+    for (i = 0; i < 4; i++) {
+      if (sides[i] < opts.minSideFraction * shortSide) {
+        return 'side ' + i + ' is only ' + Math.round(sides[i]) + 'px';
+      }
+    }
+    var aspect = ((sides[0] + sides[2]) / 2) / ((sides[1] + sides[3]) / 2);
+    if (aspect < opts.aspectMin || aspect > opts.aspectMax) {
+      return 'aspect ratio ' + aspect.toFixed(2);
+    }
+    var sign = 0;
+    for (i = 0; i < 4; i++) {
+      var a = c[i], b = c[(i + 1) % 4], d = c[(i + 2) % 4];
+      var cross = (b.x - a.x) * (d.y - b.y) - (b.y - a.y) * (d.x - b.x);
+      if (cross === 0) { continue; }
+      if (!sign) { sign = cross > 0 ? 1 : -1; }
+      else if ((cross > 0 ? 1 : -1) !== sign) { return 'quad is not convex'; }
+    }
+    return null;
+  }
+
+  function distance(a, b) {
+    var dx = a.x - b.x, dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // 2.4 Homography, not an affine deskew: a phone photo has real perspective and
+  // an affine fit leaves the far row of cells trapezoidal. The grayscale is
+  // warped and re-thresholded later, because resampling a binary image turns
+  // hard edges into mush.
+  // -> { canvas, gray: {width, height, gray}, size }
+  function warpToSquare(img, corners, opts) {
+    var size = opts.cellSize * 9;
+    var dst = [{ x: 0, y: 0 }, { x: size, y: 0 }, { x: size, y: size }, { x: 0, y: size }];
+    var m = homography(dst, corners);
+    if (!m) { return null; }
+
+    var out = new Uint8ClampedArray(size * size);
+    var w = img.width, h = img.height, g = img.gray;
+    var i, j, u, v, denom, sx, sy;
+
+    for (j = 0; j < size; j++) {
+      v = j + 0.5;
+      for (i = 0; i < size; i++) {
+        u = i + 0.5;
+        denom = m[6] * u + m[7] * v + 1;
+        sx = (m[0] * u + m[1] * v + m[2]) / denom;
+        sy = (m[3] * u + m[4] * v + m[5]) / denom;
+        out[j * size + i] = sampleBilinear(g, w, h, sx, sy);
+      }
+    }
+
+    var gray = { width: size, height: size, gray: out };
+    return { canvas: grayToCanvas(gray), gray: gray, size: size };
+  }
+
+  function sampleBilinear(g, w, h, x, y) {
+    if (x < 0) { x = 0; } else if (x > w - 1) { x = w - 1; }
+    if (y < 0) { y = 0; } else if (y > h - 1) { y = h - 1; }
+    var x0 = x | 0, y0 = y | 0;
+    var x1 = x0 + 1 > w - 1 ? w - 1 : x0 + 1;
+    var y1 = y0 + 1 > h - 1 ? h - 1 : y0 + 1;
+    var fx = x - x0, fy = y - y0;
+    return g[y0 * w + x0] * (1 - fx) * (1 - fy) + g[y0 * w + x1] * fx * (1 - fy) +
+           g[y1 * w + x0] * (1 - fx) * fy + g[y1 * w + x1] * fx * fy;
+  }
+
+  // Maps dst (u,v) -> src (x,y): the direction the warp needs, so every
+  // destination pixel is looked up rather than scattered into.
+  function homography(dst, src) {
+    var a = [], b = [], i, u, v, x, y;
+    for (i = 0; i < 4; i++) {
+      u = dst[i].x; v = dst[i].y; x = src[i].x; y = src[i].y;
+      a.push([u, v, 1, 0, 0, 0, -u * x, -v * x]); b.push(x);
+      a.push([0, 0, 0, u, v, 1, -u * y, -v * y]); b.push(y);
+    }
+    return solve8(a, b);
+  }
+
+  // Gaussian elimination with partial pivoting. Eight unknowns, so an explicit
+  // solver is smaller and clearer than anything generic.
+  function solve8(a, b) {
+    var n = 8, i, j, k, pivot, tmp, factor;
+    for (i = 0; i < n; i++) {
+      pivot = i;
+      for (k = i + 1; k < n; k++) {
+        if (Math.abs(a[k][i]) > Math.abs(a[pivot][i])) { pivot = k; }
+      }
+      tmp = a[i]; a[i] = a[pivot]; a[pivot] = tmp;
+      tmp = b[i]; b[i] = b[pivot]; b[pivot] = tmp;
+      if (Math.abs(a[i][i]) < 1e-10) { return null; }
+      for (k = i + 1; k < n; k++) {
+        factor = a[k][i] / a[i][i];
+        for (j = i; j < n; j++) { a[k][j] -= factor * a[i][j]; }
+        b[k] -= factor * b[i];
+      }
+    }
+    var out = new Array(n);
+    for (i = n - 1; i >= 0; i--) {
+      var acc = b[i];
+      for (j = i + 1; j < n; j++) { acc -= a[i][j] * out[j]; }
+      out[i] = acc / a[i][i];
+    }
+    return out;
   }
 
   // 2.5 / 2.6 -> { cells: [{ row, col, empty, bitmap28 }] x81 }
-  function extractCells(/* warpedCanvas, opts */) {
+  function extractCells(/* warped, opts */) {
     throw notImplemented('extractCells', '2.5');
   }
 
@@ -236,9 +508,16 @@ var SudokuVision = (function () {
     return toCanvas(source, opts.maxSide).then(function (canvas) {
       var result = {
         ok: false, reason: null, notImplemented: false, stage: null,
+        gridSource: null, gridRejected: null,
         grid: emptyBoard(0), confidence: emptyBoard(0), candidates: emptyBoard(null),
         uncertain: [], corners: null, warped: null, debug: null, timings: t,
-        input: { width: canvas.width, height: canvas.height }
+        input: {
+          width: canvas.sourceWidth || canvas.width,
+          height: canvas.sourceHeight || canvas.height,
+          workingWidth: canvas.width,
+          workingHeight: canvas.height,
+          scale: canvas.sourceScale || 1
+        }
       };
 
       try {
@@ -249,20 +528,33 @@ var SudokuVision = (function () {
 
         var binary = adaptiveThreshold(gray, opts);
         t.threshold = lap();
-        if (opts.debug) { result.debug.binary = binaryToCanvas(binary, gray.width, gray.height); }
+        if (opts.debug) {
+          result.debug.binary = binaryToCanvas(binary.ink, gray.width, gray.height);
+          result.debug.inkFraction = binary.inkFraction;
+          result.debug.inverted = binary.inverted;
+        }
 
-        var grid = findGrid(binary, gray.width, gray.height, opts);
+        var grid = findGrid(binary, opts);
         t.detect = lap();
         if (!grid) {
-          result.reason = "Couldn't find a sudoku grid in that image. Try a flatter, better-lit shot with the whole grid in frame.";
+          result.reason = "Couldn't find a sudoku grid in that image. Try a flatter, " +
+            "better-lit shot with the whole grid in frame.";
+          result.gridRejected = 'no candidate covered enough of the frame';
           return finish(result);
         }
-        result.corners = grid.corners;
+        result.corners = toSourceSpace(grid.corners, result.input.scale);
+        result.gridSource = grid.source;
+        result.gridRejected = grid.rejected;
 
-        result.warped = warpToSquare(gray, grid.corners, opts);
+        var warped = warpToSquare(gray, grid.corners, opts);
         t.warp = lap();
+        if (!warped) {
+          result.reason = 'The four corners found are degenerate, so the image cannot be rectified.';
+          return finish(result);
+        }
+        result.warped = warped.canvas;
 
-        var cells = extractCells(result.warped, opts);
+        var cells = extractCells(warped, opts);
         t.cells = lap();
         if (opts.debug) { result.debug.cells = cells.cells; }
 
@@ -295,6 +587,11 @@ var SudokuVision = (function () {
 
       function finish(r) { t.total = now() - t0; return r; }
     });
+  }
+
+  function toSourceSpace(points, scale) {
+    if (!scale || scale === 1) { return points; }
+    return points.map(function (p) { return { x: p.x / scale, y: p.y / scale }; });
   }
 
   function isUncertain(guess, opts) {

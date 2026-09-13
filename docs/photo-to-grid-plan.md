@@ -197,6 +197,29 @@ couple of amber cells to confirm.
 
 ---
 
+## Findings from step 2
+
+Three things the fixtures taught us that the plan did not anticipate:
+
+1. **Auto-polarity closes the dark-mode gap for free.** §2.2 assumed dark ink on light
+   paper. A light-on-dark screenshot thresholds to ~90 % ink, and the largest blob becomes
+   the whole background. Three lines — if the ink fraction exceeds 35 %, invert — bring
+   `syn-03-screenshot-inverted` in at 1.7 px, the same as everything else. The polarity
+   flag has to be applied again when the *warped* image is thresholded in §2.5; the warp
+   carries the original grayscale, so it is still light-on-dark at that point.
+
+2. **A homography cannot flatten a curled page.** It fits four corners exactly, so the
+   corner error on `syn-16-page-curl` is a misleading 0.9 px while the interior lines still
+   bow by roughly a quarter of a cell. Fixed 1/9 cell splitting will therefore drift out of
+   alignment in the middle rows. §2.5 should not assume even divisions: project the warped
+   ink onto rows and columns, find the ten strongest lines in each direction, and cut on
+   those. The two curl fixtures are the ones that will prove whether it is needed.
+
+3. **A full-frame fallback must require evidence.** As first written it fired whenever
+   detection failed, which meant "couldn't find the grid" could never be reported — a blank
+   page came back as a confident quad. It now falls back only when a large blob was found
+   *and* rejected by the sanity gate; with no blob at all the extraction fails honestly.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
@@ -213,7 +236,10 @@ couple of amber cells to confirm.
 
 - [x] **Step 1** — harness (`test-vision.html`), synthetic fixture generator, fixture manifest,
       labelling tool for real photos, `vision.js` API contract.
-- [ ] Step 2 — threshold / detect / warp
+- [x] **Step 2** — threshold, grid detection, perspective warp. Mean corner error
+      **1.3 px** across all 21 fixtures (range 0.7–1.9), no full-frame fallbacks used,
+      60–190 ms per image. Four negative cases (blank page, noise, text, one small box)
+      fail honestly instead of warping garbage.
 - [ ] Step 3 — cell cutting + empty detection
 - [ ] Step 4 — train + export the model
 - [ ] Step 5 — JS inference + confidence
