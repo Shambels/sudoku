@@ -187,34 +187,39 @@ function selectSpot(target) {
   handleKeyboardEvents(target);
 }
 
-function solve(grid) {
-  let i = 0;
-  let j = 0;
-  if (isFull(grid)) {
-    displaySolution(grid);
-    return;
-  } else {
-    for (let x = 0; x < grid.length; x++) {
-      for (let y = 0; y < grid[x].length; y++) {
-        if (grid[x][y] == 0) {
-          i = x;
-          j = y;
-          break;
-        } else {
-          continue;
-        }
+function findEmptySpot(grid) {
+  for (let x = 0; x < grid.length; x++) {
+    for (let y = 0; y < grid[x].length; y++) {
+      if (grid[x][y] == 0) {
+        return [x, y];
       }
     }
-    let possibilities = getPossibleEntries(grid, i, j);
-    for (let n = 1; n < 10; n++) {
-      if (possibilities[n] != 0) {
-        grid[i][j] = possibilities[n];
-        solve(grid);
-      }
-    }
-    // BackTrack    
-    grid[i][j] = 0;
   }
+  return null;
+}
+
+// Returns true as soon as a solution is found, so the search stops
+// at the first solution instead of exploring the whole tree.
+function solve(grid) {
+  let spot = findEmptySpot(grid);
+  if (spot === null) {
+    return true;
+  }
+  let i = spot[0];
+  let j = spot[1];
+
+  let possibilities = getPossibleEntries(grid, i, j);
+  for (let n = 1; n < 10; n++) {
+    if (possibilities[n] != 0) {
+      grid[i][j] = possibilities[n];
+      if (solve(grid)) {
+        return true;
+      }
+    }
+  }
+  // BackTrack
+  grid[i][j] = 0;
+  return false;
 }
 
 function setup() {
@@ -231,7 +236,11 @@ function start() {
   if (hasEnoughClues(clues)) {
     alert.innerHTML = "Wait for It...";
     let grid = readGrid(clues);
-    solve(grid);
+    if (solve(grid)) {
+      displaySolution(grid);
+    } else {
+      alert.innerHTML = "No Solution Found.";
+    }
   } else {
     alert.innerHTML = "Not Enough Clues ! Minimum is 17."
   }

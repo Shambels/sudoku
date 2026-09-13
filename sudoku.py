@@ -88,44 +88,39 @@ def possibleEntries(board, i, j):
             possibilityArray[x] = 0    
     return possibilityArray
 
-# recursive function which solved the board and 
-# prints it. 
+# returns (i, j) of the first vacant spot, or None if the board is full
+def findEmptySpot(board):
+    for x in range(0, 9):
+        for y in range(0, 9):
+            if board[x][y] == 0:
+                return x, y
+    return None
+
+# recursive function which solves the board in place.
+# returns True as soon as a solution is found, so the search stops at the
+# first solution instead of exploring the whole tree; returns False if this
+# branch has no solution.
 def sudokuSolver(board):
-    
-    i = 0
-    j = 0
-    
-    possiblities = {}
-    
-    # if board is full, there is no need to solve it any further
-    if isFull(board):
-        print("Board Solved Successfully!")
-        printBoard(board)
-        return
-    else:
-        # find the first vacant spot
-        for x in range (0, 9):
-            for y in range (0, 9):
-                if board[x][y] == 0:
-                    i = x
-                    j = y
-                    break
-            else:
-                continue
-            break
-        
-        # get all the possibilities for i,j
-        possiblities = possibleEntries(board, i, j)
-        
-        # go through all the possibilities and call the the function
-        # again and again
-        for x in range (1, 10):
-            if not possiblities[x] == 0:
-                board[i][j] = possiblities[x]
-                #file.write(printFileBoard(board))
-                sudokuSolver(board)
-        # backtrack
-        board[i][j] = 0
+
+    spot = findEmptySpot(board)
+    if spot is None:
+        return True
+    i, j = spot
+
+    # get all the possibilities for i,j
+    possiblities = possibleEntries(board, i, j)
+
+    # go through all the possibilities and call the function
+    # again and again
+    for x in range(1, 10):
+        if not possiblities[x] == 0:
+            board[i][j] = possiblities[x]
+            #file.write(printFileBoard(board))
+            if sudokuSolver(board):
+                return True
+    # backtrack
+    board[i][j] = 0
+    return False
 
 def main():
     SudokuBoard = [[0 for x in range(9)] for x in range(9)]
@@ -211,7 +206,11 @@ def main():
     SudokuBoard[8][7] = 4
     SudokuBoard[8][8] = 0
     printBoard(SudokuBoard)
-    sudokuSolver(SudokuBoard)
+    if sudokuSolver(SudokuBoard):
+        print("Board Solved Successfully!")
+        printBoard(SudokuBoard)
+    else:
+        print("No Solution Found.")
     #file.close()
     
 if __name__ == "__main__":
