@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sudoku vision harness</title>
+  <style>
+    :root {
+      --bg: #14151a; --panel: #1c1e25; --line: #2e313b; --fg: #e7e9ee;
+      --dim: #9aa0ad; --ok: #4ec98a; --bad: #ef6a6a; --warn: #e5b95c; --accent: #6aa8ef;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+           font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 28px 0 10px; color: var(--dim);
+         text-transform: uppercase; letter-spacing: .08em; }
+    .sub { color: var(--dim); margin: 0 0 20px; max-width: 70ch; }
+    .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+           padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line);
+             background: #2a2d36; color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #0d1117; font-weight: 600; }
+    button:disabled { opacity: .5; cursor: default; }
+    select, input[type=text] { font: inherit; padding: 6px 8px; border-radius: 6px;
+             border: 1px solid var(--line); background: #2a2d36; color: var(--fg); }
+    textarea { width: 100%; min-height: 92px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+               background: #101219; color: var(--fg); border: 1px solid var(--line);
+               border-radius: 6px; padding: 10px; }
+    .note { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--line);
+            background: #2a2419; color: var(--warn); margin: 16px 0; }
+    .note code { background: #00000044; padding: 1px 5px; border-radius: 4px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+    th { color: var(--dim); font-weight: 600; font-size: 12px;
+         text-transform: uppercase; letter-spacing: .05em; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+    .dim { color: var(--dim); }
+    .cards { display: grid; gap: 14px; }
+    details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    summary { cursor: pointer; padding: 11px 14px; display: flex; gap: 14px;
+              align-items: center; flex-wrap: wrap; }
+    summary .name { font-weight: 600; min-width: 250px; }
+    summary .tags { color: var(--dim); font-size: 12px; }
+    .body { padding: 0 14px 16px; display: flex; gap: 20px; flex-wrap: wrap; }
+    canvas { background: #000; border: 1px solid var(--line); border-radius: 4px; image-rendering: pixelated; }
+    .board { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    .board td { width: 27px; height: 27px; text-align: center; padding: 0;
+                border: 1px solid #343843; font-size: 13px; }
+    .board td.b { border-right-width: 2px; border-right-color: #565c6b; }
+    .board td.r { border-bottom-width: 2px; border-bottom-color: #565c6b; }
+    .board td.wrong { background: #4a1f22; color: #ff9c9c; font-weight: 700; }
+    .board td.flag { outline: 2px solid var(--warn); outline-offset: -2px; }
+    .board td small { display: block; font-size: 9px; color: var(--dim); line-height: 1; }
+    .legend { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+    .stack { display: flex; flex-direction: column; gap: 6px; }
+    .stack h3 { margin: 0; font-size: 11px; color: var(--dim);
+                text-transform: uppercase; letter-spacing: .06em; }
+  </style>
+</head>
+
+<body>
+  <h1>Sudoku vision harness</h1>
+  <p class="sub">
+    Runs <code>vision.js</code> over every labelled fixture and scores it. Empty-vs-digit is
+    reported separately from digit identity, because an empty-detection error is unrecoverable
+    downstream while a digit error is often repairable by the solver. "Wrong &amp; flagged" is the
+    one that decides whether the human-in-the-loop story works: a wrong cell the pipeline knew it
+    was unsure about costs the user a glance; one it was confident about costs them a wrong solve.
+  </p>
+
+  <div class="bar">
+    <button id="run" class="primary">Run all</button>
+    <label>Tag
+      <select id="tag"><option value="">all</option></select>
+    </label>
+    <label><input type="checkbox" id="debug" checked> debug canvases</label>
+    <button id="copy">Copy results JSON</button>
+    <span id="status" class="dim"></span>
+  </div>
+
+  <div id="blocked" class="note" hidden>
+    <strong>The browser will not let this page read the fixture pixels.</strong>
+    Opened over <code>file://</code>, Chrome treats every local image as a separate origin and
+    taints the canvas. Two ways round it:
+    <br>1. serve the folder — <code>python3 -m http.server</code>, then open
+    <code>http://localhost:8000/test-vision.html</code>; or
+    <br>2. pick the fixtures folder here, which hands the page real <code>File</code> objects:
+    <input type="file" id="picker" webkitdirectory directory multiple>
+  </div>
+
+  <details id="tuning">
+    <summary>Tunables</summary>
+    <div class="body" style="display:block">
+      <p class="legend">Overrides merged over <code>SudokuVision.defaults</code> for this run.
+        Edit, then Run all. This is how §2's thresholds get tuned against evidence instead of taste.</p>
+      <textarea id="opts"></textarea>
+    </div>
+  </details>
+
+  <h2>Totals</h2>
+  <div id="totals"></div>
+
+  <h2>By tag</h2>
+  <div id="bytag"></div>
+
+  <h2>Fixtures</h2>
+  <div id="cards" class="cards"></div>
+
+  <script src="tools/fixtures/manifest.js"></script>
+  <script src="vision.js"></script>
+  <script>
+    var FIXTURES = window.SUDOKU_FIXTURES || [];
+    var FIX_DIR = 'tools/fixtures/';
+    var pickedFiles = null;      // filename -> File, when the folder picker is used
+    var lastResults = [];
+
+    var el = {
+      run: document.getElementById('run'), tag: document.getElementById('tag'),
+      debug: document.getElementById('debug'), copy: document.getElementById('copy'),
+      status: document.getElementById('status'), blocked: document.getElementById('blocked'),
+      picker: document.getElementById('picker'), opts: document.getElementById('opts'),
+      totals: document.getElementById('totals'), bytag: document.getElementById('bytag'),
+      cards: document.getElementById('cards')
+    };
+
+    el.opts.value = JSON.stringify({ debug: true }, null, 2);
+
+    // ------------------------------------------------------------- sources
+
+    function sourceFor(fixture) {
+      if (pickedFiles) {
+        var f = pickedFiles[fixture.file];
+        if (!f) { throw new Error('not in the picked folder: ' + fixture.file); }
+        return f;
+      }
+      return FIX_DIR + fixture.file;
+    }
+
+    // Can we actually read pixels from a fixture loaded by path?
+    function probeSource() {
+      if (!FIXTURES.length) { return Promise.resolve(false); }
+      return SudokuVision.toCanvas(FIX_DIR + FIXTURES[0].file, 64)
+        .then(function (c) { SudokuVision.readPixels(c); return true; })
+        .catch(function () { return false; });
+    }
+
+    el.picker.addEventListener('change', function (e) {
+      pickedFiles = {};
+      Array.prototype.forEach.call(e.target.files, function (f) { pickedFiles[f.name] = f; });
+      el.blocked.hidden = true;
+      run();
+    });
+
+    // ------------------------------------------------------------- scoring
+
+    function score(fixture, result) {
+      var truth = SudokuVision.parseBoard(fixture.board);
+      var got = result.grid;
+      var s = {
+        file: fixture.file, tags: fixture.tags || [], notes: fixture.notes || '',
+        ok: result.ok, reason: result.reason, notImplemented: result.notImplemented,
+        stage: result.stage, ms: result.timings ? Math.round(result.timings.total) : null,
+        clues: 0, falseInk: 0, missed: 0, digitTotal: 0, digitRight: 0,
+        wrong: [], flaggedWrong: 0, flagged: (result.uncertain || []).length,
+        cornerError: null, exact: false, truth: truth, got: got,
+        uncertain: result.uncertain || []
+      };
+      var flagged = {};
+      s.uncertain.forEach(function (p) { flagged[p[0] + ',' + p[1]] = true; });
+
+      for (var r = 0; r < 9; r++) {
+        for (var c = 0; c < 9; c++) {
+          var tv = truth[r][c], gv = got[r][c];
+          if (tv) { s.clues++; }
+          if (!tv && gv) { s.falseInk++; }
+          if (tv && !gv) { s.missed++; }
+          if (tv && gv) { s.digitTotal++; if (tv === gv) { s.digitRight++; } }
+          if (tv !== gv) {
+            s.wrong.push([r, c]);
+            if (flagged[r + ',' + c]) { s.flaggedWrong++; }
+          }
+        }
+      }
+      s.exact = s.ok && s.wrong.length === 0;
+
+      if (fixture.corners && result.corners && result.corners.length === 4) {
+        var sum = 0;
+        for (var i = 0; i < 4; i++) {
+          var dx = result.corners[i].x - fixture.corners[i][0];
+          var dy = result.corners[i].y - fixture.corners[i][1];
+          sum += Math.sqrt(dx * dx + dy * dy);
+        }
+        s.cornerError = sum / 4;
+      }
+      return s;
+    }
+
+    // ------------------------------------------------------------- running
+
+    function run() {
+      var overrides;
+      try { overrides = JSON.parse(el.opts.value || '{}'); }
+      catch (err) { el.status.textContent = 'tunables are not valid JSON: ' + err.message; return; }
+      overrides.debug = el.debug.checked;
+
+      var wanted = FIXTURES.filter(function (f) {
+        return !el.tag.value || (f.tags || []).indexOf(el.tag.value) !== -1;
+      });
+
+      el.run.disabled = true;
+      el.cards.innerHTML = '';
+      lastResults = [];
+
+      var chain = Promise.resolve();
+      wanted.forEach(function (fixture, i) {
+        chain = chain.then(function () {
+          el.status.textContent = 'running ' + (i + 1) + '/' + wanted.length + ' - ' + fixture.file;
+          return SudokuVision.extract(sourceFor(fixture), overrides)
+            .then(function (result) { return { fixture: fixture, result: result }; })
+            .catch(function (err) {
+              return {
+                fixture: fixture,
+                result: {
+                  ok: false, reason: 'threw: ' + err.message, grid: SudokuVision.emptyBoard(0),
+                  confidence: SudokuVision.emptyBoard(0), uncertain: [], corners: null,
+                  warped: null, debug: null, timings: {}
+                }
+              };
+            })
+            .then(function (pair) {
+              var s = score(pair.fixture, pair.result);
+              lastResults.push(s);
+              el.cards.appendChild(card(s, pair.result, pair.fixture));
+              renderTotals();
+            });
+        });
+      });
+
+      chain.then(function () {
+        el.run.disabled = false;
+        el.status.textContent = 'done - ' + wanted.length + ' fixtures';
+      });
+    }
+
+    // ------------------------------------------------------------ reporting
+
+    function pct(n, d) { return d ? (100 * n / d).toFixed(1) + '%' : '-'; }
+
+    function aggregate(rows) {
+      var a = { n: rows.length, ran: 0, exact: 0, clues: 0, falseInk: 0, missed: 0,
+                digitTotal: 0, digitRight: 0, wrong: 0, flaggedWrong: 0, flagged: 0,
+                cornerErrors: [], ms: 0 };
+      rows.forEach(function (s) {
+        if (s.ok) { a.ran++; }
+        if (s.exact) { a.exact++; }
+        a.clues += s.clues; a.falseInk += s.falseInk; a.missed += s.missed;
+        a.digitTotal += s.digitTotal; a.digitRight += s.digitRight;
+        a.wrong += s.wrong.length; a.flaggedWrong += s.flaggedWrong; a.flagged += s.flagged;
+        a.ms += s.ms || 0;
+        if (s.cornerError !== null) { a.cornerErrors.push(s.cornerError); }
+      });
+      a.cornerMean = a.cornerErrors.length
+        ? a.cornerErrors.reduce(function (x, y) { return x + y; }, 0) / a.cornerErrors.length
+        : null;
+      return a;
+    }
+
+    function statsRow(label, a) {
+      return '<tr><td>' + label + '</td>' +
+        '<td class="num">' + a.ran + '/' + a.n + '</td>' +
+        '<td class="num ' + (a.exact === a.n && a.n ? 'ok' : 'bad') + '">' +
+          a.exact + '/' + a.n + '</td>' +
+        '<td class="num">' + pct(a.clues - a.missed, a.clues) + '</td>' +
+        '<td class="num ' + (a.falseInk ? 'bad' : 'ok') + '">' + a.falseInk + '</td>' +
+        '<td class="num ' + (a.missed ? 'bad' : 'ok') + '">' + a.missed + '</td>' +
+        '<td class="num">' + pct(a.digitRight, a.digitTotal) + '</td>' +
+        '<td class="num ' + (a.wrong && a.flaggedWrong === a.wrong ? 'warn'
+                             : a.wrong ? 'bad' : 'ok') + '">' +
+          a.flaggedWrong + '/' + a.wrong + '</td>' +
+        '<td class="num">' + (a.cornerMean === null ? '-' : a.cornerMean.toFixed(1) + ' px') + '</td>' +
+        '<td class="num dim">' + (a.n ? Math.round(a.ms / a.n) : 0) + ' ms</td></tr>';
+    }
+
+    var HEAD = '<tr><th>set</th><th class="num">ran</th><th class="num">exact grids</th>' +
+      '<th class="num">clue recall</th><th class="num">false ink</th><th class="num">missed clues</th>' +
+      '<th class="num">digit acc</th><th class="num">wrong &amp; flagged</th>' +
+      '<th class="num">corner err</th><th class="num">avg</th></tr>';
+
+    function renderTotals() {
+      var a = aggregate(lastResults);
+      el.totals.innerHTML = '<table>' + HEAD + statsRow('all', a) + '</table>' +
+        '<p class="legend">Plain per-cell accuracy is deliberately not shown: about 64% of cells ' +
+        'are empty, so a pipeline that reads nothing at all would score 64% and look respectable. ' +
+        'Clue recall is (clues found / clues present), which that same do-nothing pipeline scores ' +
+        '0% on.</p>' +
+        (lastResults.some(function (s) { return s.notImplemented; })
+          ? '<p class="legend warn">Pipeline stages are still stubs (' +
+            lastResults[0].stage + '). Scores of zero here are correct and expected until ' +
+            'step 2 lands - the harness is reporting honestly, not failing.</p>'
+          : '');
+
+      var tags = {};
+      lastResults.forEach(function (s) {
+        s.tags.forEach(function (t) { (tags[t] = tags[t] || []).push(s); });
+      });
+      var names = Object.keys(tags).sort();
+      el.bytag.innerHTML = '<table>' + HEAD + names.map(function (t) {
+        return statsRow(t, aggregate(tags[t]));
+      }).join('') + '</table>';
+    }
+
+    function boardTable(s) {
+      var html = '<table class="board">';
+      for (var r = 0; r < 9; r++) {
+        html += '<tr>';
+        for (var c = 0; c < 9; c++) {
+          var tv = s.truth[r][c], gv = s.got[r][c];
+          var cls = [];
+          if (c === 2 || c === 5) { cls.push('b'); }
+          if (r === 2 || r === 5) { cls.push('r'); }
+          if (tv !== gv) { cls.push('wrong'); }
+          if (s.uncertain.some(function (p) { return p[0] === r && p[1] === c; })) { cls.push('flag'); }
+          html += '<td class="' + cls.join(' ') + '">' + (gv || (tv !== gv ? '&middot;' : '')) +
+            (tv !== gv ? '<small>' + (tv || '.') + '</small>' : '') + '</td>';
+        }
+        html += '</tr>';
+      }
+      return html + '</table>';
+    }
+
+    function overlay(result, fixture) {
+      var src = result.debug && result.debug.source;
+      if (!src) { return null; }
+      var w = 260, k = w / src.width;
+      var c = document.createElement('canvas');
+      c.width = w; c.height = Math.round(src.height * k);
+      var ctx = c.getContext('2d');
+      ctx.drawImage(src, 0, 0, c.width, c.height);
+      // truth in lime, detection in magenta; a detector that is close draws on top of the other
+      if (fixture.corners) { quad(ctx, fixture.corners.map(function (p) {
+        return { x: p[0] * k, y: p[1] * k }; }), '#4ec98a'); }
+      if (result.corners) { quad(ctx, result.corners.map(function (p) {
+        return { x: p.x * k, y: p.y * k }; }), '#e46ae4'); }
+      return c;
+    }
+
+    function quad(ctx, pts, colour) {
+      ctx.strokeStyle = colour; ctx.lineWidth = 2;
+      ctx.beginPath();
+      pts.forEach(function (p, i) { i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); });
+      ctx.closePath(); ctx.stroke();
+    }
+
+    function card(s, result, fixture) {
+      var d = document.createElement('details');
+      var verdict = s.notImplemented ? '<span class="warn">stub: ' + s.stage + '</span>'
+        : !s.ok ? '<span class="bad">no grid</span>'
+        : s.exact ? '<span class="ok">exact</span>'
+        : '<span class="bad">' + s.wrong.length + ' wrong</span>';
+
+      d.innerHTML =
+        '<summary><span class="name">' + s.file + '</span>' + verdict +
+        '<span class="tags">' + s.tags.join(' · ') + '</span>' +
+        '<span class="dim">' + (s.ms === null ? '' : s.ms + ' ms') + '</span></summary>' +
+        '<div class="body"></div>';
+
+      var body = d.querySelector('.body');
+
+      if (s.reason) {
+        var p = document.createElement('p');
+        p.className = 'legend';
+        p.textContent = s.reason;
+        body.appendChild(p);
+      }
+
+      [['source + corners', overlay(result, fixture)],
+       ['grayscale', result.debug && result.debug.gray],
+       ['binary', result.debug && result.debug.binary],
+       ['warped', result.warped]].forEach(function (pair) {
+        if (!pair[1]) { return; }
+        var col = document.createElement('div');
+        col.className = 'stack';
+        col.innerHTML = '<h3>' + pair[0] + '</h3>';
+        var c = pair[1];
+        if (c.width > 260) {
+          var scaled = document.createElement('canvas');
+          var k = 260 / c.width;
+          scaled.width = 260; scaled.height = Math.round(c.height * k);
+          scaled.getContext('2d').drawImage(c, 0, 0, scaled.width, scaled.height);
+          c = scaled;
+        }
+        col.appendChild(c);
+        body.appendChild(col);
+      });
+
+      var boards = document.createElement('div');
+      boards.className = 'stack';
+      boards.innerHTML = '<h3>read vs truth</h3>' + boardTable(s) +
+        '<p class="legend">red = wrong, small digit = expected, amber ring = flagged uncertain<br>' +
+        'clues ' + s.clues + ' · false ink ' + s.falseInk + ' · missed ' + s.missed +
+        ' · digit acc ' + pct(s.digitRight, s.digitTotal) +
+        (s.cornerError === null ? '' : ' · corner err ' + s.cornerError.toFixed(1) + ' px') + '</p>' +
+        (s.notes ? '<p class="legend">' + s.notes + '</p>' : '');
+      body.appendChild(boards);
+
+      return d;
+    }
+
+    // --------------------------------------------------------------- setup
+
+    (function init() {
+      if (!FIXTURES.length) {
+        el.status.innerHTML = '<span class="bad">no fixtures - run ' +
+          'python3 tools/make_synthetic_fixtures.py</span>';
+        return;
+      }
+      var tags = {};
+      FIXTURES.forEach(function (f) { (f.tags || []).forEach(function (t) { tags[t] = 1; }); });
+      Object.keys(tags).sort().forEach(function (t) {
+        var o = document.createElement('option');
+        o.value = o.textContent = t;
+        el.tag.appendChild(o);
+      });
+
+      el.run.addEventListener('click', run);
+      el.tag.addEventListener('change', run);
+      el.copy.addEventListener('click', function () {
+        var slim = lastResults.map(function (s) {
+          return { file: s.file, ok: s.ok, exact: s.exact, falseInk: s.falseInk,
+                   missed: s.missed, digitRight: s.digitRight, digitTotal: s.digitTotal,
+                   wrong: s.wrong.length, flaggedWrong: s.flaggedWrong,
+                   cornerError: s.cornerError, ms: s.ms };
+        });
+        navigator.clipboard.writeText(JSON.stringify(slim, null, 2)).then(function () {
+          el.status.textContent = 'copied ' + slim.length + ' rows';
+        });
+      });
+
+      probeSource().then(function (readable) {
+        if (readable) { run(); }
+        else {
+          el.blocked.hidden = false;
+          el.status.textContent = 'waiting for a readable image source';
+        }
+      });
+    })();
+  </script>
+</body>
+
+</html>
