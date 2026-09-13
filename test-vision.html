@@ -162,6 +162,7 @@
       var s = {
         file: fixture.file, tags: fixture.tags || [], notes: fixture.notes || '',
         ok: result.ok, reason: result.reason, notImplemented: result.notImplemented,
+        gridSource: result.gridSource || null, gridRejected: result.gridRejected || null,
         stage: result.stage, ms: result.timings ? Math.round(result.timings.total) : null,
         clues: 0, falseInk: 0, missed: 0, digitTotal: 0, digitRight: 0,
         wrong: [], flaggedWrong: 0, flagged: (result.uncertain || []).length,
@@ -334,9 +335,11 @@
     function overlay(result, fixture) {
       var src = result.debug && result.debug.source;
       if (!src) { return null; }
-      var w = 260, k = w / src.width;
+      // the canvas is drawn to a fixed width, and both quads are in source-image
+      // coordinates, so scale by the source width - not the working canvas width
+      var w = 260, k = w / ((result.input && result.input.width) || src.width);
       var c = document.createElement('canvas');
-      c.width = w; c.height = Math.round(src.height * k);
+      c.width = w; c.height = Math.round(src.height * (w / src.width));
       var ctx = c.getContext('2d');
       ctx.drawImage(src, 0, 0, c.width, c.height);
       // truth in lime, detection in magenta; a detector that is close draws on top of the other
@@ -364,6 +367,8 @@
       d.innerHTML =
         '<summary><span class="name">' + s.file + '</span>' + verdict +
         '<span class="tags">' + s.tags.join(' · ') + '</span>' +
+        (s.gridSource ? '<span class="' + (s.gridSource === 'blob' ? 'dim' : 'warn') + '">grid: ' +
+          s.gridSource + (s.gridRejected ? ' (' + s.gridRejected + ')' : '') + '</span>' : '') +
         '<span class="dim">' + (s.ms === null ? '' : s.ms + ' ms') + '</span></summary>' +
         '<div class="body"></div>';
 
