@@ -88,6 +88,54 @@ def possibleEntries(board, i, j):
             possibilityArray[x] = 0    
     return possibilityArray
 
+# Collects the (x, y) coordinates of every clue that breaks a rule:
+# a duplicate inside a row, a column or a 3x3 box, or a value outside 1-9.
+# Returns a set of coordinates, empty when the board is consistent.
+def findConflicts(board):
+    conflicts = set()
+
+    def checkGroup(cells):
+        seen = {}
+        for x, y in cells:
+            value = board[x][y]
+            if value == 0:
+                continue
+            seen.setdefault(value, []).append((x, y))
+        for value, cells in seen.items():
+            if len(cells) > 1:
+                conflicts.update(cells)
+
+    for x in range(0, 9):
+        checkGroup([(x, y) for y in range(0, 9)])
+        checkGroup([(y, x) for y in range(0, 9)])
+
+    for k in range(0, 9, 3):
+        for l in range(0, 9, 3):
+            checkGroup([(x, y) for x in range(k, k + 3)
+                        for y in range(l, l + 3)])
+
+    # A value that isn't a digit from 0 to 9 is invalid on its own.
+    for x in range(0, 9):
+        for y in range(0, 9):
+            if not isinstance(board[x][y], int) or not 0 <= board[x][y] <= 9:
+                conflicts.add((x, y))
+
+    return conflicts
+
+# prints the board with every conflicting clue marked by a trailing *
+def printConflicts(board, conflicts):
+    print("---------------------")
+    for x in range(0, 9):
+        if x == 3 or x == 6:
+            print("---------------------")
+        for y in range(0, 9):
+            if y == 3 or y == 6:
+                print("|", end=" ")
+            mark = "*" if (x, y) in conflicts else " "
+            print(str(board[x][y]) + mark, end="")
+        print()
+    print("---------------------")
+
 # returns (i, j) of the first vacant spot, or None if the board is full
 def findEmptySpot(board):
     for x in range(0, 9):
@@ -206,6 +254,19 @@ def main():
     SudokuBoard[8][7] = 4
     SudokuBoard[8][8] = 0
     printBoard(SudokuBoard)
+
+    # Contradictory clues can never be solved, so report them instead of
+    # running the solver on an impossible board.
+    conflicts = findConflicts(SudokuBoard)
+    if conflicts:
+        print("Invalid Clues! " + str(len(conflicts)) +
+              " cell(s) break the rules, marked with * below:")
+        printConflicts(SudokuBoard, conflicts)
+        for x, y in sorted(conflicts):
+            print("  row " + str(x + 1) + ", column " + str(y + 1) +
+                  ": " + str(SudokuBoard[x][y]))
+        return
+
     if sudokuSolver(SudokuBoard):
         print("Board Solved Successfully!")
         printBoard(SudokuBoard)
