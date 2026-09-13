@@ -54,3 +54,15 @@ input {
   color: transparent;
   text-shadow: 0 0 0 black;
 }
+
+.case.selected {
+  background-color: lightgray;
+}
+
+.case.conflict {
+  background-color: #f8d0d0;
+}
+
+.case.conflict.selected {
+  background-color: #eeb0b0;
+}
