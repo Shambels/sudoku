@@ -1,1 +1,8 @@
 __pycache__
+
+# training inputs and intermediates - regenerate with tools/train_digits.py
+.cache/
+tools/*.npz
+fixture-bitmaps.json
+samples*.png
+train*.log

@@ -78,6 +78,7 @@
     </label>
     <label><input type="checkbox" id="debug" checked> debug canvases</label>
     <button id="copy">Copy results JSON</button>
+    <button id="bitmaps">Download bitmaps JSON</button>
     <span id="status" class="dim"></span>
   </div>
 
@@ -120,7 +121,8 @@
     var el = {
       run: document.getElementById('run'), tag: document.getElementById('tag'),
       debug: document.getElementById('debug'), copy: document.getElementById('copy'),
-      status: document.getElementById('status'), blocked: document.getElementById('blocked'),
+      status: document.getElementById('status'),
+      bitmaps: document.getElementById('bitmaps'), blocked: document.getElementById('blocked'),
       picker: document.getElementById('picker'), opts: document.getElementById('opts'),
       totals: document.getElementById('totals'), bytag: document.getElementById('bytag'),
       cards: document.getElementById('cards')
@@ -181,6 +183,8 @@
           if (tv && cell.empty) { s.occFN++; s.occWrong.push([cell.row, cell.col]); }
         });
       }
+
+      s.cells = (result.debug && result.debug.cells) || null;
 
       var flagged = {};
       s.uncertain.forEach(function (p) { flagged[p[0] + ',' + p[1]] = true; });
@@ -500,6 +504,37 @@
         navigator.clipboard.writeText(JSON.stringify(slim, null, 2)).then(function () {
           el.status.textContent = 'copied ' + slim.length + ' rows';
         });
+      });
+
+      // The normalised cells plus their true labels, for tools/eval_on_fixtures.py.
+      // Scoring the model on these rather than on synthetic glyphs is the only way
+      // to measure the whole chain - detection, warp, threshold, segmentation and
+      // normalisation all show up in these bitmaps.
+      el.bitmaps.addEventListener('click', function () {
+        var rows = [];
+        lastResults.forEach(function (s) {
+          if (!s.cells) { return; }
+          s.cells.forEach(function (cell) {
+            if (cell.empty || !cell.bitmap28) { return; }
+            var bytes = [];
+            for (var i = 0; i < cell.bitmap28.length; i++) {
+              bytes.push(Math.round(cell.bitmap28[i] * 255));
+            }
+            rows.push({ file: s.file, row: cell.row, col: cell.col,
+                        truth: s.truth[cell.row][cell.col], bitmap: bytes });
+          });
+        });
+        if (!rows.length) {
+          el.status.textContent = 'no bitmaps - run with debug canvases enabled';
+          return;
+        }
+        var blob = new Blob([JSON.stringify(rows)], { type: 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'fixture-bitmaps.json';
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+        el.status.textContent = 'exported ' + rows.length + ' labelled bitmaps';
       });
 
       probeSource().then(function (readable) {
