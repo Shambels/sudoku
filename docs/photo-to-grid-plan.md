@@ -303,6 +303,39 @@ Three things the fixtures taught us that the plan did not anticipate:
    `1 -> background` is still the joint-largest confusion, which step 5's confidence
    flagging and step 6's solver repair are exactly the mechanisms for.
 
+## Findings from step 5
+
+1. **Third parity check, third seam covered.** The JS forward pass agrees with Python on
+   all 610 fixture cells - identical predictions, confidences within 2.2e-6 (float32
+   accumulation order). Every hand-written crossing in this project now has a check:
+   normalisation, weight export, and inference.
+
+2. **Test-time augmentation earns its cost.** Three forward passes at -6/0/+6 degrees take
+   wrong cells from 12 to 10 and perfect grids from 15 to 16, for +45 ms. It was listed as
+   optional in §3; the measurement promotes it to the default.
+
+3. **`minMargin` does nothing.** Swept across 0.20-0.80 it changes the result not at all:
+   on this fixture set every low-margin cell is also a low-confidence one, so the second
+   criterion never fires independently. Left in place because real photos may differ, but
+   flagged in the code as inert - a knob that appears to work and does not is worse than
+   no knob.
+
+4. **The confidence threshold should NOT be maximised.** Raising it from 0.90 to 0.99
+   catches one extra wrong cell and flags 16 % of clues instead of 6 % - roughly five amber
+   cells per grid instead of under two. Measured against the fixtures, confidence and the
+   §5.1 rule-conflict check *together* catch every wrong cell even at 0.80, so the last
+   cell is already covered for free. Choosing the threshold in isolation would have bought
+   three times the noise for nothing.
+
+5. **"Background" is a real answer, not a failure.** When the segmenter finds something
+   digit-shaped and the classifier calls it junk, the cell is left empty and always
+   flagged. Two stages disagreeing is exactly what a person should look at - and it is
+   where a thin 1 gets lost.
+
+6. Runtime breakdown per photo (no debug canvases): grayscale 14 ms, threshold 23 ms,
+   detect 13 ms, warp 6 ms, cells 7 ms, classify 69 ms, total 131 ms - inside the
+   100-200 ms budget in §2, with the classifier now the dominant cost.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
@@ -329,6 +362,8 @@ Three things the fixtures taught us that the plan did not anticipate:
 - [x] **Step 4** — trained and exported. **98.0 %** per-cell accuracy on bitmaps cut from
       the fixture photos (int8, what ships), 15/21 grids read with zero wrong cells.
       Quantisation costs 0.16 points. `digit-model.js` is 37 KB, 26,698 parameters.
-- [ ] Step 5 — JS inference + confidence
+- [x] **Step 5** — JS forward pass and confidence. Clue recall **99.7 %**, digit accuracy
+      **98.7 %**, zero false ink, **16/21** grids exactly right, 131 ms per photo.
+      Predictions match Python on all 610 fixture cells.
 - [ ] Step 6 — UI integration, conflicts, solver repair
 - [ ] Step 7 — threshold tuning

@@ -53,11 +53,20 @@ var SudokuVision = (function () {
     canvasBox: 28,
 
     // 4. confidence
+    // 0.90 flags about 6% of clues. Pushing it to 0.99 catches one more wrong cell
+    // but flags 16% - and measured against the fixtures, confidence AND the rule
+    // conflict check together catch every wrong cell even at 0.80, so buying that
+    // last cell with three times the amber is a bad trade.
     minConfidence: 0.90,
+    // Currently inert: on the fixture set every low-margin cell is also a
+    // low-confidence one, so this changes nothing below 0.80. Kept because real
+    // photos may not behave that way - but do not assume tuning it does anything
+    // until the numbers say so.
     minMargin: 0.30,
 
-    // 3. test-time augmentation
-    ttaAngles: [0]                // e.g. [-6, 0, 6]
+    // 3. test-time augmentation - three forward passes instead of one.
+    // Measured: 12 wrong cells -> 10, and 15/21 perfect grids -> 16, for +45ms.
+    ttaAngles: [-6, 0, 6]
   };
 
   function options(overrides) {
@@ -722,9 +731,175 @@ var SudokuVision = (function () {
     return out;
   }
 
-  // 3 -> { digit, confidence, candidates: [[digit, p], [digit, p]] }
-  function classify(/* bitmap28, opts */) {
-    throw notImplemented('classify', '3');
+  // 3 The classifier's forward pass. conv3x3x8 -> pool -> conv3x3x16 -> pool ->
+  // dense 32 -> dense 10, run directly rather than via im2col: 81 cells is small
+  // enough that avoiding the intermediate allocations is worth more than the
+  // matrix-multiply shape.
+  //
+  // Class 0 is background - junk that got past the empty-cell filter. It is a real
+  // answer, not a failure: a model with nowhere to put junk calls it a 1.
+  //
+  // -> { digit, confidence, candidates: [[digit, p], ...], background }
+  function classify(bitmap, opts) {
+    var probs = softmax(logits(bitmap, weights()));
+
+    if (opts.ttaAngles && opts.ttaAngles.length > 1) {
+      // Averaging a few small rotations steadies digits left slightly skewed by
+      // imperfect corner detection. Costs one forward pass per angle.
+      var summed = new Float32Array(probs.length), a, i, extra;
+      for (a = 0; a < opts.ttaAngles.length; a++) {
+        extra = opts.ttaAngles[a] === 0
+          ? probs
+          : softmax(logits(rotateBitmap(bitmap, opts.ttaAngles[a]), weights()));
+        for (i = 0; i < summed.length; i++) { summed[i] += extra[i]; }
+      }
+      for (i = 0; i < summed.length; i++) { summed[i] /= opts.ttaAngles.length; }
+      probs = summed;
+    }
+
+    var ranked = [];
+    for (var k = 0; k < probs.length; k++) { ranked.push([k, probs[k]]); }
+    ranked.sort(function (a, b) { return b[1] - a[1]; });
+
+    return {
+      digit: ranked[0][0],
+      confidence: ranked[0][1],
+      candidates: ranked.slice(0, 3),
+      background: ranked[0][0] === 0
+    };
+  }
+
+  var weightCache = null;
+
+  function weights() {
+    if (weightCache) { return weightCache; }
+    var model = (typeof SudokuDigitModel !== 'undefined') ? SudokuDigitModel
+      : (typeof window !== 'undefined' ? window.SudokuDigitModel : null);
+    if (!model) {
+      var err = new Error('digit-model.js is not loaded - add it before vision.js');
+      err.notImplemented = true;
+      err.stage = 'classify';
+      throw err;
+    }
+    weightCache = model.weights();
+    return weightCache;
+  }
+
+  // Scratch buffers, allocated once. Classifying 81 cells per photo through
+  // freshly allocated arrays is most of the cost of the forward pass.
+  var buf = {
+    a1: new Float32Array(8 * 784), p1: new Float32Array(8 * 196),
+    a2: new Float32Array(16 * 196), p2: new Float32Array(16 * 49),
+    h3: new Float32Array(32), out: new Float32Array(10)
+  };
+
+  function logits(bitmap, w) {
+    var a1 = buf.a1, p1 = buf.p1, a2 = buf.a2, p2 = buf.p2, h3 = buf.h3, out = buf.out;
+    var o, y, x, i, j, c, sy, sx, sum, base;
+
+    // conv1: 1x28x28 -> 8x28x28, 3x3 with one pixel of zero padding
+    for (o = 0; o < 8; o++) {
+      base = o * 9;
+      for (y = 0; y < 28; y++) {
+        for (x = 0; x < 28; x++) {
+          sum = w.b1[o];
+          for (i = 0; i < 3; i++) {
+            sy = y + i - 1;
+            if (sy < 0 || sy > 27) { continue; }
+            for (j = 0; j < 3; j++) {
+              sx = x + j - 1;
+              if (sx < 0 || sx > 27) { continue; }
+              sum += w.w1[base + i * 3 + j] * bitmap[sy * 28 + sx];
+            }
+          }
+          a1[o * 784 + y * 28 + x] = sum > 0 ? sum : 0;
+        }
+      }
+    }
+    maxpool(a1, p1, 8, 28);
+
+    // conv2: 8x14x14 -> 16x14x14
+    for (o = 0; o < 16; o++) {
+      for (y = 0; y < 14; y++) {
+        for (x = 0; x < 14; x++) {
+          sum = w.b2[o];
+          for (c = 0; c < 8; c++) {
+            base = o * 72 + c * 9;
+            for (i = 0; i < 3; i++) {
+              sy = y + i - 1;
+              if (sy < 0 || sy > 13) { continue; }
+              for (j = 0; j < 3; j++) {
+                sx = x + j - 1;
+                if (sx < 0 || sx > 13) { continue; }
+                sum += w.w2[base + i * 3 + j] * p1[c * 196 + sy * 14 + sx];
+              }
+            }
+          }
+          a2[o * 196 + y * 14 + x] = sum > 0 ? sum : 0;
+        }
+      }
+    }
+    maxpool(a2, p2, 16, 14);
+
+    // dense 784 -> 32 -> 10. p2 is laid out channel-major, matching the flatten
+    // order the training script used (channel * 49 + y * 7 + x).
+    for (o = 0; o < 32; o++) {
+      sum = w.b3[o];
+      for (i = 0; i < 784; i++) { sum += p2[i] * w.w3[i * 32 + o]; }
+      h3[o] = sum > 0 ? sum : 0;
+    }
+    for (o = 0; o < 10; o++) {
+      sum = w.b4[o];
+      for (i = 0; i < 32; i++) { sum += h3[i] * w.w4[i * 10 + o]; }
+      out[o] = sum;
+    }
+    return out;
+  }
+
+  // 2x2 max pooling, stride 2, over `channels` planes of size `size`.
+  function maxpool(src, dst, channels, size) {
+    var half = size / 2, c, y, x, o, a, b, cc, d, best;
+    for (c = 0; c < channels; c++) {
+      for (y = 0; y < half; y++) {
+        for (x = 0; x < half; x++) {
+          o = c * size * size + (y * 2) * size + x * 2;
+          a = src[o]; b = src[o + 1]; cc = src[o + size]; d = src[o + size + 1];
+          best = a > b ? a : b;
+          if (cc > best) { best = cc; }
+          if (d > best) { best = d; }
+          dst[c * half * half + y * half + x] = best;
+        }
+      }
+    }
+  }
+
+  function softmax(values) {
+    var out = new Float32Array(values.length), peak = -Infinity, total = 0, i;
+    for (i = 0; i < values.length; i++) { if (values[i] > peak) { peak = values[i]; } }
+    for (i = 0; i < values.length; i++) {
+      out[i] = Math.exp(values[i] - peak);
+      total += out[i];
+    }
+    for (i = 0; i < values.length; i++) { out[i] /= total; }
+    return out;
+  }
+
+  // Rotate a 28x28 bitmap about its centre, bilinear, for test-time augmentation.
+  function rotateBitmap(bitmap, degrees) {
+    var out = new Float32Array(784);
+    var rad = degrees * Math.PI / 180;
+    var cos = Math.cos(rad), sin = Math.sin(rad), centre = 13.5;
+    var x, y, sx, sy, dx, dy;
+    for (y = 0; y < 28; y++) {
+      for (x = 0; x < 28; x++) {
+        dx = x - centre; dy = y - centre;
+        sx = centre + dx * cos + dy * sin;
+        sy = centre - dx * sin + dy * cos;
+        if (sx < 0 || sy < 0 || sx > 27 || sy > 27) { continue; }
+        out[y * 28 + x] = sampleBilinear(bitmap, 28, 28, sx, sy);
+      }
+    }
+    return out;
   }
 
   function notImplemented(name, section) {
@@ -819,9 +994,18 @@ var SudokuVision = (function () {
           r = cell.row; c = cell.col;
           if (cell.empty) { result.confidence[r][c] = 1; continue; }
           guess = classify(cell.bitmap28, opts);
-          result.grid[r][c] = guess.digit;
           result.confidence[r][c] = guess.confidence;
           result.candidates[r][c] = guess.candidates;
+          if (guess.background) {
+            // The segmenter found something a digit-shaped; the classifier says it
+            // is junk. Leave the cell empty but always flag it: the two stages
+            // disagreeing is exactly the case a person should look at, and it is
+            // also where a thin 1 gets lost.
+            result.grid[r][c] = 0;
+            result.uncertain.push([r, c]);
+            continue;
+          }
+          result.grid[r][c] = guess.digit;
           if (isUncertain(guess, opts)) { result.uncertain.push([r, c]); }
         }
         t.classify = lap();
@@ -856,6 +1040,16 @@ var SudokuVision = (function () {
     return guess.confidence < opts.minConfidence || margin < opts.minMargin;
   }
 
+  // The digit alternatives for one cell, best first, background dropped. This is
+  // what the solver-assisted repair in plan 5.2 searches over.
+  function digitCandidates(candidates, limit) {
+    var out = [], i;
+    for (i = 0; i < (candidates || []).length && out.length < (limit || 2); i++) {
+      if (candidates[i][0] !== 0) { out.push(candidates[i]); }
+    }
+    return out;
+  }
+
   function now() {
     return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   }
@@ -865,6 +1059,7 @@ var SudokuVision = (function () {
     extract: extract,
     parseBoard: parseBoard,
     boardToString: boardToString,
+    digitCandidates: digitCandidates,
     emptyBoard: emptyBoard,
     toCanvas: toCanvas,
     readPixels: readPixels,
@@ -879,7 +1074,8 @@ var SudokuVision = (function () {
       extractCells: extractCells,
       findGridLines: findGridLines,
       normalizeDigit: normalizeDigit,
-      classify: classify
+      classify: classify,
+      logits: logits
     }
   };
 })();

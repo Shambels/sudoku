@@ -22,7 +22,7 @@ Built so far:
 
 | | |
 |---|---|
-| `vision.js` | the pipeline's API and plumbing; the stages are stubs until step 2 |
+| `vision.js` | the whole pipeline: threshold, detect, warp, segment, classify |
 | `test-vision.html` | scores the pipeline over every labelled fixture |
 | `tools/make_synthetic_fixtures.py` | regenerates the 21 synthetic fixtures |
 | `tools/label-fixture.html` | turns a real photo into a manifest entry |
