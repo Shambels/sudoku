@@ -28,9 +28,19 @@ var SudokuVision = (function () {
     aspectMin: 0.6,
     aspectMax: 1.7,
     allowFullFrameFallback: true, // screenshots are already cropped
+    // Four corners in the SOURCE image's coordinates, TL TR BR BL. When supplied,
+    // detection is skipped entirely and the gates below do not apply: a person
+    // pointing at the grid is better evidence than any of them.
+    corners: null,
     gridCandidates: 4,            // blobs to try before giving up
     minLineEvidence: 12,          // of 20 lines; below this it is not a grid
     goodLineEvidence: 18,         // stop looking once a candidate is this convincing
+    // Line evidence says "this looks like a grid"; it does not say "this is a
+    // sudoku". Measured: a quad that scores 19/20 on lines but is warping the wrong
+    // region reads 21 cells into rule conflicts, while every correctly detected
+    // photo reads 0-4. So candidates are also judged on whether the board they
+    // produce could be a sudoku at all.
+    maxCandidateConflicts: 10,
 
     // 2.4 warp
     cellSize: 48,                 // warped grid is 9 * cellSize square
@@ -540,6 +550,84 @@ var SudokuVision = (function () {
       else if ((cross > 0 ? 1 : -1) !== sign) { return 'quad is not convex'; }
     }
     return null;
+  }
+
+  // How many cells sit in a duplicated row, column or box. The same rule the app
+  // uses, kept here so vision.js stays standalone.
+  function countConflicts(grid) {
+    var bad = {}, r, c, k, l;
+
+    function group(cells) {
+      var seen = {}, i, key, value;
+      for (i = 0; i < cells.length; i++) {
+        value = grid[cells[i][0]][cells[i][1]];
+        if (!value) { continue; }
+        if (!seen[value]) { seen[value] = []; }
+        seen[value].push(cells[i]);
+      }
+      for (key in seen) {
+        if (seen[key].length > 1) {
+          seen[key].forEach(function (cell) { bad[cell[0] + ',' + cell[1]] = 1; });
+        }
+      }
+    }
+
+    for (r = 0; r < 9; r++) {
+      var row = [], col = [];
+      for (c = 0; c < 9; c++) { row.push([r, c]); col.push([c, r]); }
+      group(row); group(col);
+    }
+    for (k = 0; k < 9; k += 3) {
+      for (l = 0; l < 9; l += 3) {
+        var box = [];
+        for (r = k; r < k + 3; r++) { for (c = l; c < l + 3; c++) { box.push([r, c]); } }
+        group(box);
+      }
+    }
+    return Object.keys(bad).length;
+  }
+
+  // Read a prepared warp into a board. The result is kept: validating a candidate
+  // and reading it are the same work, so doing it once rather than drafting first
+  // and re-reading afterwards costs one classification pass instead of two.
+  function readBoard(prepared, opts) {
+    var cells = extractCells(prepared, opts);
+    var out = {
+      grid: emptyBoard(0), confidence: emptyBoard(0), candidates: emptyBoard(null),
+      uncertain: [], cells: cells
+    };
+    var i, cell, guess, r, c;
+    for (i = 0; i < cells.cells.length; i++) {
+      cell = cells.cells[i];
+      r = cell.row; c = cell.col;
+      if (cell.empty) {
+        out.confidence[r][c] = 1;
+        // Empty because there was nothing there is certain. Empty because something
+        // was found and judged too sparse to be a digit is a close call - real digits
+        // start at 0.161 fill and the bar is 0.15 - so that one is shown. The other
+        // rejections (a speck, a stray mark, nothing near the centre) are not close
+        // calls, and flagging them all put the amber count up from 42 to 89 for no gain.
+        if (cell.reason === 'too sparse') {
+          out.confidence[r][c] = 0;
+          out.uncertain.push([r, c]);
+        }
+        continue;
+      }
+      guess = classify(cell.bitmap28, opts);
+      out.confidence[r][c] = guess.confidence;
+      out.candidates[r][c] = guess.candidates;
+      if (guess.background) {
+        // The segmenter found something digit-shaped; the classifier says it is junk.
+        // Leave the cell empty but always flag it: the two stages disagreeing is
+        // exactly the case a person should look at, and it is also where a thin 1
+        // gets lost.
+        out.uncertain.push([r, c]);
+        continue;
+      }
+      out.grid[r][c] = guess.digit;
+      if (isUncertain(guess, opts)) { out.uncertain.push([r, c]); }
+    }
+    return out;
   }
 
   function distance(a, b) {
@@ -1225,6 +1313,7 @@ var SudokuVision = (function () {
       var result = {
         ok: false, reason: null, notImplemented: false, stage: null,
         gridSource: null, gridRejected: null, lineEvidence: null,
+        candidateConflicts: null,
         grid: emptyBoard(0), confidence: emptyBoard(0), candidates: emptyBoard(null),
         uncertain: [], corners: null, warped: null, debug: null, timings: t,
         input: {
@@ -1254,29 +1343,71 @@ var SudokuVision = (function () {
         // grid yields 15-20 of 20 across every fixture that reads; the gravel photo
         // that produced 42 invented clues yields 6. Picking by evidence rather than
         // by blob size is what stops a background from being read as a board.
-        var proposals = gridCandidates(binary, opts);
-        var chosen = null, attempt, candidate, warpedTry, prepared;
+        var chosenManually = null;
+        if (opts.corners && opts.corners.length === 4) {
+          var scale = result.input.scale;
+          var placed = opts.corners.map(function (p) {
+            return { x: p.x * scale, y: p.y * scale };
+          });
+          var manualWarp = warpToSquare(gray, placed, opts);
+          if (!manualWarp) {
+            result.reason = 'Those four corners do not form a usable quadrilateral.';
+            return finish(result);
+          }
+          var manualPrepared = prepareWarp(manualWarp, opts);
+          var manualBoard = readBoard(manualPrepared, opts);
+          chosenManually = {
+            candidate: { corners: placed, source: 'manual', rejected: null },
+            prepared: manualPrepared, board: manualBoard,
+            conflicts: countConflicts(manualBoard.grid)
+          };
+        }
+
+        // Try proposals in order - largest blob first, which is almost always the
+        // grid - and stop at the first whose board could actually be a sudoku. The
+        // read that validates the winner is the read we keep, so the ordinary case
+        // costs one warp and one classification pass, not two of each.
+        var proposals = chosenManually ? [] : gridCandidates(binary, opts);
+        var chosen = chosenManually, best = null, attempt, candidate, warpedTry, prepared;
+        var conflicts, board;
         for (attempt = 0; attempt < proposals.length; attempt++) {
           candidate = proposals[attempt];
           warpedTry = warpToSquare(gray, candidate.corners, opts);
           if (!warpedTry) { continue; }
           prepared = prepareWarp(warpedTry, opts);
-          if (!chosen || prepared.evidence > chosen.prepared.evidence) {
-            chosen = { candidate: candidate, prepared: prepared };
+          if (!best || prepared.evidence > best.prepared.evidence) {
+            best = { candidate: candidate, prepared: prepared };
           }
-          if (prepared.evidence >= opts.goodLineEvidence) { break; }
+          if (prepared.evidence < opts.minLineEvidence) { continue; }
+
+          board = readBoard(prepared, opts);
+          conflicts = countConflicts(board.grid);
+          if (conflicts > opts.maxCandidateConflicts) {
+            if (best.conflicts === undefined || conflicts < best.conflicts) {
+              best = { candidate: candidate, prepared: prepared, conflicts: conflicts };
+            }
+            continue;
+          }
+          chosen = { candidate: candidate, prepared: prepared,
+                     conflicts: conflicts, board: board };
+          break;
         }
         t.detect = lap();
 
-        if (!chosen || chosen.prepared.evidence < opts.minLineEvidence) {
-          result.reason = "Couldn't find a sudoku grid in that image" +
-            (chosen ? " - the strongest candidate only had " + chosen.prepared.evidence +
-                      " of 20 grid lines" : "") +
+        if (!chosen) {
+          var how = best
+            ? (best.prepared.evidence < opts.minLineEvidence
+                ? " - the strongest candidate only had " + best.prepared.evidence +
+                  " of 20 grid lines"
+                : " - a grid was found but the digits in it break sudoku's rules, so it " +
+                  "is not the puzzle")
+            : "";
+          result.reason = "Couldn't find a sudoku grid in that image" + how +
             ". Try a flatter, better-lit shot with the whole grid in frame.";
-          result.gridRejected = chosen
-            ? 'line evidence ' + chosen.prepared.evidence + '/20'
+          result.gridRejected = best
+            ? 'line evidence ' + best.prepared.evidence + '/20'
             : 'no candidate';
-          result.gridSource = chosen ? chosen.candidate.source : null;
+          result.gridSource = best ? best.candidate.source : null;
           return finish(result);
         }
 
@@ -1284,59 +1415,29 @@ var SudokuVision = (function () {
         result.gridSource = chosen.candidate.source;
         result.gridRejected = chosen.candidate.rejected;
         result.lineEvidence = chosen.prepared.evidence;
+        result.candidateConflicts = chosen.conflicts;
 
         var warped = chosen.prepared.warped;
         t.warp = 0;
         result.warped = warped.canvas;
-        var cells = extractCells(chosen.prepared, opts);
+        var cells = chosen.board.cells;
         t.cells = lap();
         if (opts.debug) {
           result.debug.cells = cells.cells;
-          // flatten for the harness: the global position of each line, plus how far
-          // it bends from one side of the grid to the other
           result.debug.lines = {
-            rows: Array.from(cells.lines.rows.positions),
-            cols: Array.from(cells.lines.cols.positions),
-            rowsSnapped: cells.lines.rows.snapped,
-            colsSnapped: cells.lines.cols.snapped
+            rows: Array.from(chosen.prepared.lines.rows.positions),
+            cols: Array.from(chosen.prepared.lines.cols.positions),
+            rowsSnapped: chosen.prepared.lines.rows.snapped,
+            colsSnapped: chosen.prepared.lines.cols.snapped
           };
-          result.debug.warpedBinary = binaryToCanvas(cells.binary.ink, warped.size, warped.size);
-          result.debug.warpedInverted = cells.binary.inverted;
+          result.debug.warpedBinary = binaryToCanvas(chosen.prepared.binary.ink,
+                                                     warped.size, warped.size);
+          result.debug.warpedInverted = chosen.prepared.binary.inverted;
         }
-
-        var i, cell, guess, r, c;
-        for (i = 0; i < cells.cells.length; i++) {
-          cell = cells.cells[i];
-          r = cell.row; c = cell.col;
-          if (cell.empty) {
-            result.confidence[r][c] = 1;
-            // Empty because there was nothing there is certain. Empty because
-            // something was found and judged too sparse to be a digit is a close
-            // call - real digits start at 0.161 fill and the bar is 0.15 - so that
-            // one is shown. The other rejections (a speck, a stray mark, nothing
-            // near the centre) are not close calls, and flagging them all put the
-            // amber count up from 42 to 89 for no gain.
-            if (cell.reason === 'too sparse') {
-              result.confidence[r][c] = 0;
-              result.uncertain.push([r, c]);
-            }
-            continue;
-          }
-          guess = classify(cell.bitmap28, opts);
-          result.confidence[r][c] = guess.confidence;
-          result.candidates[r][c] = guess.candidates;
-          if (guess.background) {
-            // The segmenter found something a digit-shaped; the classifier says it
-            // is junk. Leave the cell empty but always flag it: the two stages
-            // disagreeing is exactly the case a person should look at, and it is
-            // also where a thin 1 gets lost.
-            result.grid[r][c] = 0;
-            result.uncertain.push([r, c]);
-            continue;
-          }
-          result.grid[r][c] = guess.digit;
-          if (isUncertain(guess, opts)) { result.uncertain.push([r, c]); }
-        }
+        result.grid = chosen.board.grid;
+        result.confidence = chosen.board.confidence;
+        result.candidates = chosen.board.candidates;
+        result.uncertain = chosen.board.uncertain;
         t.classify = lap();
 
         result.ok = true;
@@ -1388,6 +1489,7 @@ var SudokuVision = (function () {
     extract: extract,
     parseBoard: parseBoard,
     boardToString: boardToString,
+    countConflicts: countConflicts,
     digitCandidates: digitCandidates,
     emptyBoard: emptyBoard,
     toCanvas: toCanvas,

@@ -5,7 +5,7 @@ app (`index.html` + `sudoku.js`) that solves in the browser.
 
 ## Running it
 
-- **Web** — open `index.html`. Type the clues, press `=>`.
+- **Web** — open `index.html`. Type the clues, or drop a photo on the page, and press **Solve**.
 - **Python** — `python3 sudoku.py`.
 
 Both share the same approach: backtracking that stops at the first solution, with a
@@ -17,6 +17,9 @@ can never be solved.
 Open `index.html`, then pick a photo, drop one on the page, or paste one. The grid fills
 in, cells the reader is unsure about turn amber, and **Copy board** gives you an
 81-character string you can paste into `sudoku.py`.
+
+If a photo cannot be read, the app says so rather than guessing, and offers **Set corners
+by hand**: click the four corners of the grid and it reads from those instead.
 
 Find the grid, rectify it, cut 81 cells, classify each one — all in vanilla canvas JS with
 a 37 KB embedded digit model, no runtime dependencies, still openable from `file://`.
