@@ -169,6 +169,19 @@
         cornerError: null, exact: false, truth: truth, got: got,
         uncertain: result.uncertain || []
       };
+      // Empty-vs-digit is scored straight off the segmenter, so it stays meaningful
+      // while the classifier is still a stub - and so a segmentation regression can
+      // never hide behind a classifier improvement.
+      s.occChecked = 0; s.occFP = 0; s.occFN = 0; s.occWrong = [];
+      if (result.debug && result.debug.cells) {
+        result.debug.cells.forEach(function (cell) {
+          var tv = truth[cell.row][cell.col];
+          s.occChecked++;
+          if (!tv && !cell.empty) { s.occFP++; s.occWrong.push([cell.row, cell.col]); }
+          if (tv && cell.empty) { s.occFN++; s.occWrong.push([cell.row, cell.col]); }
+        });
+      }
+
       var flagged = {};
       s.uncertain.forEach(function (p) { flagged[p[0] + ',' + p[1]] = true; });
 
@@ -252,6 +265,7 @@
 
     function aggregate(rows) {
       var a = { n: rows.length, ran: 0, exact: 0, clues: 0, falseInk: 0, missed: 0,
+                occChecked: 0, occFP: 0, occFN: 0,
                 digitTotal: 0, digitRight: 0, wrong: 0, flaggedWrong: 0, flagged: 0,
                 cornerErrors: [], ms: 0 };
       rows.forEach(function (s) {
@@ -261,6 +275,7 @@
         a.digitTotal += s.digitTotal; a.digitRight += s.digitRight;
         a.wrong += s.wrong.length; a.flaggedWrong += s.flaggedWrong; a.flagged += s.flagged;
         a.ms += s.ms || 0;
+        a.occChecked += s.occChecked || 0; a.occFP += s.occFP || 0; a.occFN += s.occFN || 0;
         if (s.cornerError !== null) { a.cornerErrors.push(s.cornerError); }
       });
       a.cornerMean = a.cornerErrors.length
@@ -275,6 +290,11 @@
         '<td class="num ' + (a.exact === a.n && a.n ? 'ok' : 'bad') + '">' +
           a.exact + '/' + a.n + '</td>' +
         '<td class="num">' + pct(a.clues - a.missed, a.clues) + '</td>' +
+        '<td class="num ' + (!a.occChecked ? 'dim'
+            : (a.occFP + a.occFN) ? 'bad' : 'ok') + '">' +
+          (a.occChecked ? pct(a.occChecked - a.occFP - a.occFN, a.occChecked) : '-') + '</td>' +
+        '<td class="num ' + ((a.occFP + a.occFN) ? 'bad' : 'dim') + '">' +
+          a.occFP + ' / ' + a.occFN + '</td>' +
         '<td class="num ' + (a.falseInk ? 'bad' : 'ok') + '">' + a.falseInk + '</td>' +
         '<td class="num ' + (a.missed ? 'bad' : 'ok') + '">' + a.missed + '</td>' +
         '<td class="num">' + pct(a.digitRight, a.digitTotal) + '</td>' +
@@ -286,7 +306,8 @@
     }
 
     var HEAD = '<tr><th>set</th><th class="num">ran</th><th class="num">exact grids</th>' +
-      '<th class="num">clue recall</th><th class="num">false ink</th><th class="num">missed clues</th>' +
+      '<th class="num">clue recall</th><th class="num">occupancy</th>' +
+      '<th class="num">occ FP / FN</th><th class="num">false ink</th><th class="num">missed clues</th>' +
       '<th class="num">digit acc</th><th class="num">wrong &amp; flagged</th>' +
       '<th class="num">corner err</th><th class="num">avg</th></tr>';
 
@@ -357,6 +378,39 @@
       ctx.closePath(); ctx.stroke();
     }
 
+    // The 81 normalised bitmaps as the classifier will see them. Looking at these
+    // is the fastest way to tell a segmentation bug from a threshold one.
+    function cellSheet(result, s) {
+      var cells = result.debug && result.debug.cells;
+      if (!cells) { return null; }
+      var box = 28, pad = 2, step = box + pad;
+      var c = document.createElement('canvas');
+      c.width = c.height = step * 9 + pad;
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#1c1e25';
+      ctx.fillRect(0, 0, c.width, c.height);
+      var img = ctx.createImageData(box, box);
+      cells.forEach(function (cell) {
+        var x = pad + cell.col * step, y = pad + cell.row * step;
+        var wrong = s.occWrong.some(function (p) { return p[0] === cell.row && p[1] === cell.col; });
+        ctx.fillStyle = wrong ? '#6a1f22' : '#000';
+        ctx.fillRect(x, y, box, box);
+        if (cell.bitmap28) {
+          for (var i = 0; i < box * box; i++) {
+            var v = Math.round(cell.bitmap28[i] * 255);
+            img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+            img.data[i * 4 + 3] = 255;
+          }
+          ctx.putImageData(img, x, y);
+        }
+        if (wrong) {
+          ctx.strokeStyle = '#ef6a6a'; ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, box - 1, box - 1);
+        }
+      });
+      return c;
+    }
+
     function card(s, result, fixture) {
       var d = document.createElement('details');
       var verdict = s.notImplemented ? '<span class="warn">stub: ' + s.stage + '</span>'
@@ -384,13 +438,15 @@
       [['source + corners', overlay(result, fixture)],
        ['grayscale', result.debug && result.debug.gray],
        ['binary', result.debug && result.debug.binary],
-       ['warped', result.warped]].forEach(function (pair) {
+       ['warped', result.warped],
+       ['warped binary', result.debug && result.debug.warpedBinary],
+       ['normalised cells', cellSheet(result, s)]].forEach(function (pair) {
         if (!pair[1]) { return; }
         var col = document.createElement('div');
         col.className = 'stack';
         col.innerHTML = '<h3>' + pair[0] + '</h3>';
         var c = pair[1];
-        if (c.width > 260) {
+        if (c.width > 260 && pair[0] !== 'normalised cells') {
           var scaled = document.createElement('canvas');
           var k = 260 / c.width;
           scaled.width = 260; scaled.height = Math.round(c.height * k);
@@ -406,6 +462,8 @@
       boards.innerHTML = '<h3>read vs truth</h3>' + boardTable(s) +
         '<p class="legend">red = wrong, small digit = expected, amber ring = flagged uncertain<br>' +
         'clues ' + s.clues + ' · false ink ' + s.falseInk + ' · missed ' + s.missed +
+        ' · occupancy ' + pct(s.occChecked - s.occFP - s.occFN, s.occChecked) +
+        ' (FP ' + s.occFP + ' / FN ' + s.occFN + ')' +
         ' · digit acc ' + pct(s.digitRight, s.digitTotal) +
         (s.cornerError === null ? '' : ' · corner err ' + s.cornerError.toFixed(1) + ' px') + '</p>' +
         (s.notes ? '<p class="legend">' + s.notes + '</p>' : '');

@@ -220,6 +220,43 @@ Three things the fixtures taught us that the plan did not anticipate:
    page came back as a confident quad. It now falls back only when a large blob was found
    *and* rejected by the sanity gate; with no blob at all the extraction fails honestly.
 
+## Findings from step 3
+
+1. **Polarity must be decided on the grayscale, never on the binary image.** Flipping
+   after thresholding produced 51 false digits in one fixture: on a light-on-dark image
+   the local mean around each bright line inks a halo either side of it, leaving an
+   untouched island in the middle of every cell that becomes a convincing fake digit once
+   flipped. Deciding from the share of above-mean pixels instead separates cleanly —
+   normal fixtures never fall below 0.53, the dark-mode one reads 0.09, so the 0.30
+   default has about 4x margin either way. It also improved that fixture's corner error.
+
+2. **Ink area is the wrong test for "is this cell empty".** Every miss was a 1 or a 7
+   inking 2.0–3.0 % of its cell against a 3 % floor — the two thinnest glyphs, dropped by
+   the very rule meant to protect them. Height is the right discriminator: every digit
+   from 1 to 9 stands near full cell height, and no speck does. Swapping the test moved
+   18 misses to zero.
+
+3. **Tightening the threshold does not thin strokes, it breaks them.** Swept 0.78–0.96
+   against counter survival in 4/6/8/9: survival *falls* from 96 % to 63 % as the bias
+   tightens, because a broken loop lets its counter leak into the background. The default
+   was already near optimal; the lesson is that stroke thickness is not fixable at the
+   threshold.
+
+4. **Bitmaps run thicker than MNIST — mean ink 0.17 against MNIST's 0.131.** Since (3)
+   rules out fixing it by threshold, the dilate/erode thickness augmentation in §3 is not
+   optional; without it, MNIST-trained weights will meet systematically fatter strokes
+   than they were trained on.
+
+5. **The synthetic set has stopped discriminating.** Occupancy is 100 % and detection is
+   at the ~1 px floor, so further tuning against it would be fitting noise — the blur
+   fixture's counters swung on a sample of 14 digits. Real photos are now the blocking
+   input, not more code.
+
+6. **A fixture bug wore the costume of a pipeline bug.** Two handwriting "7"s normalised
+   to a flat bar. The pipeline was faithful; the generator had drawn the crossbar 2.2x
+   wider than the glyph was tall. Worth remembering that when the ruler is also code,
+   a bad measurement is as likely as a bad result.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
@@ -240,7 +277,9 @@ Three things the fixtures taught us that the plan did not anticipate:
       **1.3 px** across all 21 fixtures (range 0.7–1.9), no full-frame fallbacks used,
       60–190 ms per image. Four negative cases (blank page, noise, text, one small box)
       fail honestly instead of warping garbage.
-- [ ] Step 3 — cell cutting + empty detection
+- [x] **Step 3** — cell cutting, empty detection, MNIST normalisation. Occupancy
+      **100.0 %** (0 false positives, 0 missed clues over 1701 cells, 21/21 fixtures
+      perfect). Grid lines are found by projection, not assumed.
 - [ ] Step 4 — train + export the model
 - [ ] Step 5 — JS inference + confidence
 - [ ] Step 6 — UI integration, conflicts, solver repair
