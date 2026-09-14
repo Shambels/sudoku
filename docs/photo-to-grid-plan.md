@@ -431,6 +431,103 @@ full board, and ghost content all at once.
    it correctly and the webp original does not. It is stored as the webp: choosing the
    copy that scores better would be measuring the wrong thing.
 
+## Findings from the third real photo
+
+A newspaper puzzle, out of focus, with page text around the grid. Read 25 of 26 clues with
+**4 errors**; now **3**, all flagged. Geometry was never the problem here - line drift was
+under 6 px and the warp was clean. Every error was in the cell.
+
+1. **A confident wrong answer came from an L-shaped grid-line corner.** The bottom-left
+   cell held two thin strokes meeting at a corner, and the classifier called it a 6 at 98 %
+   confidence - the worst failure mode there is, since confidence flagging cannot catch it.
+   The through-line test missed it because that only rejects components spanning *opposite*
+   edges, and an L spans two adjacent ones.
+
+2. **The fix came from measuring, after two guesses failed.** A component's fill ratio -
+   pixels over bounding-box area - separates the two populations: across every fixture,
+   real digits never fall below **0.161**, while the junk reaching this point sits at
+   0.082, 0.114, 0.149 and 0.172. A bar at 0.15 removes three of the four and costs no
+   digit. The margin is thin, so a cell rejected by *this* test alone is flagged rather
+   than silently dropped.
+
+3. **Flag the close call, not every rejection.** Flagging any cell that held ink and was
+   rejected took the amber count from 42 to 89 - about 13 % of all clues - for no gain.
+   Only the fill-ratio rejection is a genuine close call; a speck or a stray mark is not.
+
+4. **Three attempts to recover a digit merged with the border all measured worse, and
+   were reverted.** On a blurred photo the grid line spreads past the inset and merges
+   with the digit, which then reads as background. Trimming the cell box inward cost 2
+   cells; deleting ink runs longer than 0.75 of the cell cost 5; restricting that to
+   near-full runs in the outer 30 % cost 1 and gained 0. The reason run length fails is
+   measurable: **8 of 706 correctly-read cells contain a full-width run**, so run length
+   alone does not identify a line. The two affected cells are flagged. The record is in
+   `vision.js` next to the code so a fourth attempt starts from the evidence.
+
+5. **The remaining substitution is the classifier, not the geometry.** A blurred serif 1
+   read as a 9 at 0.50 against 0.32. Flagged.
+
+## Findings from the fourth real photo
+
+A folded newspaper on gravel: rotated about 20 degrees, strong perspective, shadow, margin
+scribbles, low resolution. It produced **42 clues where there are 28**, only 30 of 81 cells
+right - confident nonsense. It is now **refused**, with a reason.
+
+1. **Detection had no way to know it had failed.** The largest ink component was the page
+   furniture and the gravel, its quad failed the shape check, and the full-frame fallback
+   then warped the entire photograph - gravel included - and read a board out of it. The
+   promise in section 2.3 that a bad fallback would be reported was never actually kept,
+   because nothing downstream ever checked.
+
+2. **The check was already being computed.** The number of grid lines found inside the
+   warped square separates cleanly: every fixture that reads finds **15 to 20 of 20**; this
+   photo finds **6**. A bar at 12 sits in the middle of that gap. Extraction now fails with
+   "the strongest candidate only had 11 of 20 grid lines" instead of inventing a board.
+
+3. **Detection proposes, warping disposes.** Rather than betting on the largest blob, the
+   detector now offers several candidates - each blob's x±y corners, a rotation-invariant
+   maximum-area quadrilateral fitted to its convex hull, and the full frame - warps each,
+   and keeps whichever contains the most grid lines. Because selection is by measured
+   evidence, adding candidates cannot regress a photo that already worked, which is what
+   made this safe to attempt after five reverts.
+
+4. **The quad fit helped and was still not enough.** It lifted this photo's best candidate
+   from 10 to 11 of 20, below the bar. Cropping to the grid by hand made it *worse* (8/20).
+   The grid's own ink is merged with the page border and title, so no quadrilateral of that
+   blob is the grid. Separating them needs a different detector, not a better fit.
+
+5. **A refusal is not 81 errors.** The harness counted the refused photo as 28 wrong cells,
+   which dropped "wrong and flagged" to 28 % and would have made guessing look better than
+   admitting defeat. Refusals are now counted in their own column.
+
+## Findings from the fifth real photo
+
+A full newspaper page photographed at an angle, with a **completed solution grid printed
+directly above the puzzle** - two valid sudoku grids in one frame. It read 20 of 24 clues,
+all four errors being dropped digits. It now reads **perfectly**.
+
+1. **Two grids in frame, and evidence-based selection picked the right one.** The obvious
+   risk of choosing candidates by line evidence is that a *finished* grid scores at least
+   as well as the puzzle. The detector picked the puzzle anyway - the solution grid is
+   physically smaller, so it loses on blob size before evidence is consulted. That is luck
+   rather than design, and worth remembering as a latent failure.
+
+2. **The four missed digits were not missing - they were discarded.** All four touched a
+   grid line. The merged component spans the cell edge to edge, and the through-line test
+   threw it away along with the line, reporting "no component near the centre" and zero
+   ink even though the binary image clearly contained the digit.
+
+3. **The fix is the inverse of the three that failed.** Every earlier attempt tried to
+   remove the *line*, and each deleted digit strokes somewhere else. What works is
+   refusing to mistake the merge for a line in the first place: a grid line is thin across
+   its span, a digit stuck to one is not. Swept 0.15-0.55 with a flat optimum from 0.22;
+   at 0.30 the total across all fixtures goes **15 wrong cells to 12**, exact grids 17 to
+   18, and this photo goes from 4 wrong to none. It costs one cell on real-01.
+
+4. A reminder of how easily this was missed for four photos: the cell reported *zero ink*,
+   which reads like "nothing there" and is actually "everything there was rejected". The
+   diagnostic that cracked it was rendering the warped binary and seeing the digits plainly
+   present.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
@@ -440,6 +537,10 @@ full board, and ghost content all at once.
 - **Thick grid lines bleeding into cells** — mitigated by the 12 % inset and discarding
   border-touching components; the inset is the first thing to tune if cells read as junk.
 - **Non-square (16×16, 6×6) puzzles** — out of scope; the pipeline assumes 9×9.
+- **A grid whose ink merges with surrounding page furniture** (title, borders, margin
+  notes) cannot be isolated by the largest-blob detector, however the quad is fitted.
+  `real-04` is the example. It is refused rather than misread; fixing it properly means a
+  detector that looks for the grid's periodic line structure rather than its connectivity.
 
 ---
 

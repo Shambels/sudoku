@@ -31,6 +31,42 @@ window.SUDOKU_FIXTURES = [
     "notes": "printed grid, handwritten answers, faint erased-pencil ghosting, 50 clues. Original bytes - re-encoding at q88 turns ghosting into false ink."
   },
   {
+    "file": "real-03-newspaper-blurry.jpg",
+    "board": "...6.47..7.6.....9.....5.8..7..2..938.......543..1..7..5.2.....3.....2.8..23.1...",
+    "tags": [
+      "real",
+      "print",
+      "blur",
+      "clutter"
+    ],
+    "notes": "newspaper puzzle, out of focus, page text above and beside the grid. Original bytes."
+  },
+  {
+    "file": "real-04-gravel-rotated.jpg",
+    "board": "..4.8.....1.792.4.3........6.....2...578.1936..3.....8........2.3.964.1....27.6..",
+    "tags": [
+      "real",
+      "print",
+      "rotation",
+      "perspective",
+      "clutter",
+      "hard"
+    ],
+    "notes": "folded newspaper on gravel: rotated ~20 deg, strong perspective, shadow, margin scribbles, low resolution. Original bytes."
+  },
+  {
+    "file": "real-05-newspaper-angle.jpg",
+    "board": "....6...24...156.....7...9....6..1.7.7.....8.3.6..9....5...8.....149...38...5....",
+    "tags": [
+      "real",
+      "print",
+      "perspective",
+      "clutter",
+      "two-grids"
+    ],
+    "notes": "full newspaper page at an angle. A COMPLETED solution grid sits above the puzzle - two valid grids in one frame. Original bytes."
+  },
+  {
     "file": "syn-01-screenshot-clean-a.jpg",
     "board": ".3..7.128.9...346.71...8.9..27.3.......16.....8.45...6...32..5...5.8...237....8.1",
     "corners": [

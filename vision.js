@@ -28,6 +28,9 @@ var SudokuVision = (function () {
     aspectMin: 0.6,
     aspectMax: 1.7,
     allowFullFrameFallback: true, // screenshots are already cropped
+    gridCandidates: 4,            // blobs to try before giving up
+    minLineEvidence: 12,          // of 20 lines; below this it is not a grid
+    goodLineEvidence: 18,         // stop looking once a candidate is this convincing
 
     // 2.4 warp
     cellSize: 48,                 // warped grid is 9 * cellSize square
@@ -48,6 +51,13 @@ var SudokuVision = (function () {
     centerBoxFraction: 0.50,      // component must overlap this central box
     minInkFraction: 0.010,        // of the inset cell's area
     minDigitHeight: 0.30,         // of the cell's height - every digit is near full height
+    // A digit fills a good share of its own bounding box; a grid-line corner does
+    // not. Measured across every fixture: real digits never fall below 0.161 fill,
+    // while the junk that reaches this point sits at 0.082, 0.114, 0.149 and 0.172.
+    // The margin is thin, so the failure is made visible rather than silent - see
+    // the flagging of rejected-but-inked cells below.
+    minFillRatio: 0.15,           // component pixels over bounding-box area
+    lineThinness: 0.30,           // a spanning component is a line only if it is thin
     minDigitBox: 4,               // px, an absolute floor for very small cells
 
     // 2.6 normalization
@@ -274,41 +284,43 @@ var SudokuVision = (function () {
     return above / n < opts.polarityBrightFraction;
   }
 
-  // 2.3 The grid's border and lines form one big 8-connected blob. Label the
-  // binary image, take the largest component that covers a plausible share of the
-  // frame, and read its corners off the extremes of x+y and x-y.
-  // -> { corners: [{x,y}] TL,TR,BR,BL, source, rejected } or null
-  function findGrid(binary, opts) {
-    var w = binary.width, h = binary.height, ink = binary.ink;
-    var blob = largestBlob(ink, w, h, opts.minGridAreaFraction);
-    var rejected = null;
+  // 2.3 Propose places the grid might be. The grid's border and lines form one big
+  // 8-connected blob, but on a cluttered background so does everything else, so this
+  // returns several candidates in order of size and lets the caller verify each by
+  // warping it and counting the grid lines inside.
+  // -> [{ corners, source, rejected }]
+  function gridCandidates(binary, opts) {
+    var w = binary.width, h = binary.height;
+    var blobs = blobCandidates(binary.ink, w, h, opts.minGridAreaFraction, opts.gridCandidates);
+    var out = [], i, problem;
 
-    if (blob) {
-      var corners = [blob.minSum, blob.maxDiff, blob.maxSum, blob.minDiff]; // TL TR BR BL
-      rejected = quadProblem(corners, w, h, opts);
-      if (!rejected) {
-        return { corners: corners, source: 'blob', blob: blob, rejected: null };
+    for (i = 0; i < blobs.length; i++) {
+      if (!quadProblem(blobs[i].corners, w, h, opts)) {
+        out.push({ corners: blobs[i].corners, source: 'blob', rejected: null });
+      }
+      var fitted = largestQuad(blobs[i].hull || []);
+      if (fitted && !quadProblem(fitted, w, h, opts)) {
+        out.push({ corners: fitted, source: 'quadFit', rejected: null });
       }
     }
 
-    // An already-cropped screenshot has no margin to find, so the frame itself is
-    // the right answer. But only fall back when a big structure was actually found
-    // and rejected: with no blob at all there is no evidence of a grid, and
-    // returning the frame would turn "nothing here" into a confident wrong answer.
-    if (opts.allowFullFrameFallback && blob) {
-      return {
+    // An already-cropped screenshot has no margin to find, so the frame itself is a
+    // legitimate candidate - but only a candidate. It used to be an unconditional
+    // fallback, which is how a photo of gravel came back as a confident board.
+    if (opts.allowFullFrameFallback) {
+      out.push({
         corners: [{ x: 0, y: 0 }, { x: w - 1, y: 0 },
                   { x: w - 1, y: h - 1 }, { x: 0, y: h - 1 }],
-        source: 'fullFrame', blob: blob,
-        rejected: rejected || 'no blob covered enough of the frame'
-      };
+        source: 'fullFrame',
+        rejected: blobs.length ? 'no blob passed the shape check' : 'no blob found'
+      });
     }
-    return null;
+    return out;
   }
 
   // Two-pass 8-connected labelling with union-find. 8-connected, not 4: a grid
   // line in a rotated photo is a staircase, and 4-connectivity breaks it apart.
-  function largestBlob(ink, w, h, minAreaFraction) {
+  function blobCandidates(ink, w, h, minAreaFraction, limit) {
     var labels = new Int32Array(w * h);
     var parent = [0];
     var next = 1, x, y, i, n, best;
@@ -372,23 +384,135 @@ var SudokuVision = (function () {
       }
     }
 
+    // Several candidates, not just the biggest. On a cluttered photo - newsprint on
+    // gravel - the largest ink component is the background, and betting everything on
+    // it produced a full-frame warp and 42 invented clues. The caller warps each
+    // candidate and keeps whichever actually contains a grid.
     var minArea = minAreaFraction * w * h;
-    best = 0;
+    var ranked = [];
     for (i = 1; i < next; i++) {
       if (!count[i]) { continue; }
       var area = (maxX[i] - minX[i] + 1) * (maxY[i] - minY[i] + 1);
       if (area < minArea) { continue; }
-      if (!best || count[i] > count[best]) { best = i; }
+      ranked.push(i);
     }
-    if (!best) { return null; }
+    ranked.sort(function (a, b) { return count[b] - count[a]; });
+    ranked = ranked.slice(0, limit || 1);
 
-    return {
-      pixels: count[best],
-      bbox: { x: minX[best], y: minY[best],
-              w: maxX[best] - minX[best] + 1, h: maxY[best] - minY[best] + 1 },
-      minSum: pMinSum[best], maxSum: pMaxSum[best],
-      minDiff: pMinDiff[best], maxDiff: pMaxDiff[best]
+    // Second pass over just the winners, recording each one's leftmost and rightmost
+    // pixel per row. The convex hull of those points is the hull of the blob, and it
+    // is what lets a rotated grid be fitted without assuming it is axis-aligned.
+    var wanted = {};
+    ranked.forEach(function (id, slot) { wanted[id] = slot; });
+    var profiles = ranked.map(function () { return { left: new Int32Array(h).fill(-1),
+                                                    right: new Int32Array(h).fill(-1) }; });
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) {
+        i = y * w + x;
+        if (!labels[i]) { continue; }
+        var slot = wanted[find(labels[i])];
+        if (slot === undefined) { continue; }
+        if (profiles[slot].left[y] < 0) { profiles[slot].left[y] = x; }
+        profiles[slot].right[y] = x;
+      }
+    }
+
+    return ranked.map(function (id, slot) {
+      var points = [], row;
+      for (row = 0; row < h; row++) {
+        if (profiles[slot].left[row] < 0) { continue; }
+        points.push({ x: profiles[slot].left[row], y: row });
+        points.push({ x: profiles[slot].right[row], y: row });
+      }
+      return {
+        pixels: count[id],
+        bbox: { x: minX[id], y: minY[id],
+                w: maxX[id] - minX[id] + 1, h: maxY[id] - minY[id] + 1 },
+        corners: [pMinSum[id], pMaxDiff[id], pMaxSum[id], pMinDiff[id]],   // TL TR BR BL
+        hull: convexHull(points)
+      };
+    });
+  }
+
+  // Andrew's monotone chain. Counter-clockwise in image coordinates.
+  function convexHull(points) {
+    if (points.length < 4) { return points.slice(); }
+    var sorted = points.slice().sort(function (a, b) {
+      return a.x === b.x ? a.y - b.y : a.x - b.x;
+    });
+    var cross = function (o, a, b) {
+      return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
     };
+    var lower = [], upper = [], i;
+    for (i = 0; i < sorted.length; i++) {
+      while (lower.length >= 2 &&
+             cross(lower[lower.length - 2], lower[lower.length - 1], sorted[i]) <= 0) {
+        lower.pop();
+      }
+      lower.push(sorted[i]);
+    }
+    for (i = sorted.length - 1; i >= 0; i--) {
+      while (upper.length >= 2 &&
+             cross(upper[upper.length - 2], upper[upper.length - 1], sorted[i]) <= 0) {
+        upper.pop();
+      }
+      upper.push(sorted[i]);
+    }
+    lower.pop(); upper.pop();
+    return lower.concat(upper);
+  }
+
+  // The largest quadrilateral with corners on the hull, ordered TL, TR, BR, BL.
+  //
+  // Corners from the extremes of x+y and x-y assume the grid is roughly square to
+  // the frame; on a photo rotated by 20 degrees with the grid merged into the page
+  // furniture, those extremes are not the grid's corners and the warp rectifies the
+  // wrong quadrilateral. This fit does not care about orientation. It is offered as
+  // an extra candidate rather than a replacement - whichever proposal yields more
+  // grid lines after warping wins.
+  function largestQuad(hull) {
+    var n = hull.length;
+    if (n < 4) { return null; }
+    var area = function (a, b, c) {
+      return Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2;
+    };
+    var best = -1, pick = null, i, j, k, l, second, total;
+    // Hull vertices are few; fix two opposite corners and take the best on each side.
+    for (i = 0; i < n; i++) {
+      for (k = i + 2; k < n; k++) {
+        var bestJ = -1, areaJ = -1, bestL = -1, areaL = -1;
+        for (j = i + 1; j < k; j++) {
+          second = area(hull[i], hull[j], hull[k]);
+          if (second > areaJ) { areaJ = second; bestJ = j; }
+        }
+        for (l = k + 1; l < n + i; l++) {
+          second = area(hull[i], hull[l % n], hull[k]);
+          if (second > areaL) { areaL = second; bestL = l % n; }
+        }
+        if (bestJ < 0 || bestL < 0) { continue; }
+        total = areaJ + areaL;
+        if (total > best) { best = total; pick = [hull[i], hull[bestJ], hull[k], hull[bestL]]; }
+      }
+    }
+    return pick ? orderQuad(pick) : null;
+  }
+
+  // TL, TR, BR, BL by angle about the centroid, so the warp maps them consistently
+  // whatever order the hull produced.
+  function orderQuad(quad) {
+    var cx = 0, cy = 0, i;
+    for (i = 0; i < 4; i++) { cx += quad[i].x / 4; cy += quad[i].y / 4; }
+    var byAngle = quad.slice().sort(function (a, b) {
+      return Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx);
+    });
+    // atan2 starts at the negative y axis going clockwise in image coordinates
+    var start = 0, bestScore = Infinity;
+    for (i = 0; i < 4; i++) {
+      var score = byAngle[i].x + byAngle[i].y;
+      if (score < bestScore) { bestScore = score; start = i; }
+    }
+    return [byAngle[start], byAngle[(start + 1) % 4],
+            byAngle[(start + 2) % 4], byAngle[(start + 3) % 4]];
   }
 
   // Returns null when the quad looks like a sudoku grid, or a reason when it does not.
@@ -505,17 +629,30 @@ var SudokuVision = (function () {
 
   // 2.5 Cut the warped square into 81 cells and decide which hold a digit.
   // -> { cells: [{row, col, empty, bitmap28, ...}] x81, lines, binary }
-  function extractCells(warped, opts) {
+  // Threshold the warped square and locate its grid lines. Done once per candidate
+  // during detection, then reused for the winner - the line count IS the evidence
+  // that a candidate is a grid at all.
+  function prepareWarp(warped, opts) {
+    var cellOpts = options(opts);
+    cellOpts.thresholdWindowDivisor = opts.warpedWindowDivisor;
+    cellOpts.thresholdBias = opts.warpedThresholdBias;
+    var bin = adaptiveThreshold(warped.gray, cellOpts);
+    var lines = findGridLines(bin, warped.size, opts);
+    return {
+      warped: warped, binary: bin, lines: lines,
+      evidence: lines.rows.snapped + lines.cols.snapped
+    };
+  }
+
+  function extractCells(prepared, opts) {
+    var warped = prepared.warped;
     var size = warped.size;
     // Re-threshold after the warp rather than warping the binary image: resampling
     // hard edges turns them to mush. adaptiveThreshold also re-applies the polarity
     // check here, because the warp carries the original grayscale - a dark-mode
     // screenshot is still light-on-dark at this point.
-    var cellOpts = options(opts);
-    cellOpts.thresholdWindowDivisor = opts.warpedWindowDivisor;
-    cellOpts.thresholdBias = opts.warpedThresholdBias;
-    var bin = adaptiveThreshold(warped.gray, cellOpts);
-    var lines = findGridLines(bin, size, opts);
+    var bin = prepared.binary;
+    var lines = prepared.lines;
 
     var cells = [], r, c;
     for (r = 0; r < 9; r++) {
@@ -717,7 +854,7 @@ var SudokuVision = (function () {
     var bx = Math.min(size - 1, Math.round(x1 - insetX));
     var by = Math.min(size - 1, Math.round(y1 - insetY));
 
-    var cell = { row: r, col: c, empty: true, bitmap28: null, pixels: 0,
+    var cell = { row: r, col: c, empty: true, bitmap28: null, pixels: 0, fill: 0,
                  inkFraction: 0, box: { x: ax, y: ay, w: bx - ax + 1, h: by - ay + 1 },
                  digitBox: null, reason: null };
     if (cell.box.w < 4 || cell.box.h < 4) { cell.reason = 'cell too small'; return cell; }
@@ -733,9 +870,13 @@ var SudokuVision = (function () {
     // Judging by ink alone was dropping exactly those two glyphs.
     if (kept.bbox.h < opts.minDigitHeight * cell.box.h) { cell.reason = 'too short'; return cell; }
     if (kept.bbox.h < opts.minDigitBox) { cell.reason = 'speck'; return cell; }
+    // An L of two thin strokes is a grid-line corner, not a digit - and left to the
+    // classifier it came back as a confident 6.
+    if (kept.fill < opts.minFillRatio) { cell.reason = 'too sparse'; return cell; }
 
     cell.empty = false;
     cell.digitBox = kept.bbox;
+    cell.fill = kept.fill;
     cell.bitmap28 = normalizeDigit(kept.mask, cell.box.w, cell.box.h, kept.bbox, opts);
     return cell;
   }
@@ -743,6 +884,23 @@ var SudokuVision = (function () {
   // Components inside one cell, filtered down to what is plausibly a digit.
   // A raw ink count would call a thick grid line a 1 and a faint pencil 7 an empty,
   // so the decision is made on components instead.
+  //
+  // A digit that touches a grid line used to be lost here: the merged component
+  // spans the cell edge to edge, and the through-line test discarded it along with
+  // the line. Three attempts to remove the LINE all measured worse - trimming the
+  // cell box inward (cost 2 cells), deleting ink runs longer than 0.75 of the cell
+  // (cost 5; 8 of 706 correctly-read cells contain a full-width run, so run length
+  // alone does not identify a line), and restricting that to near-full runs in the
+  // outer 30% (cost 1, gained 0).
+  //
+  // What worked was not removing the line but refusing to mistake the merge for one:
+  // a line is thin across its span, a digit stuck to a line is not. Swept 0.15-0.55,
+  // flat optimum from 0.22; total wrong cells across the fixtures went 15 -> 12 and
+  // one photo went from 4 wrong to none.
+  //
+  // KNOWN LIMIT: on a badly blurred photo the line spreads far enough to swallow the
+  // digit outright, and no thickness test can separate them. Two cells in
+  // real-03-newspaper-blurry. Both are flagged.
   function digitMask(bin, size, ax, ay, bx, by, opts) {
     var w = bx - ax + 1, h = by - ay + 1;
     var seen = new Uint8Array(w * h);
@@ -779,10 +937,15 @@ var SudokuVision = (function () {
           }
         }
 
-        // A grid-line remnant runs edge to edge; a digit does not.
+        // A grid-line remnant runs edge to edge - but so does a digit that happens
+        // to touch one, and discarding that merged component throws the digit away
+        // too. What separates them is thickness across the span: a line is a few
+        // pixels deep, a digit stuck to a line is as deep as a digit.
         var spansX = minX === 0 && maxX === w - 1;
         var spansY = minY === 0 && maxY === h - 1;
-        if (spansX || spansY) { continue; }
+        var thinDown = (maxY - minY + 1) < opts.lineThinness * h;
+        var thinAcross = (maxX - minX + 1) < opts.lineThinness * w;
+        if ((spansX && thinDown) || (spansY && thinAcross)) { continue; }
         // Must reach into the middle of the cell, or it is a neighbour bleeding in.
         if (maxX < cx0 || minX > cx1 || maxY < cy0 || minY > cy1) { continue; }
 
@@ -795,7 +958,8 @@ var SudokuVision = (function () {
           : { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
       }
     }
-    return { mask: mask, pixels: kept, bbox: bbox };
+    return { mask: mask, pixels: kept, bbox: bbox,
+             fill: bbox ? kept / (bbox.w * bbox.h) : 0 };
   }
 
   // 2.6 MNIST's own recipe: fit the digit's longer side to 20px, then centre it in
@@ -1060,7 +1224,7 @@ var SudokuVision = (function () {
     return toCanvas(source, opts.maxSide).then(function (canvas) {
       var result = {
         ok: false, reason: null, notImplemented: false, stage: null,
-        gridSource: null, gridRejected: null,
+        gridSource: null, gridRejected: null, lineEvidence: null,
         grid: emptyBoard(0), confidence: emptyBoard(0), candidates: emptyBoard(null),
         uncertain: [], corners: null, warped: null, debug: null, timings: t,
         input: {
@@ -1086,27 +1250,45 @@ var SudokuVision = (function () {
           result.debug.inverted = binary.inverted;
         }
 
-        var grid = findGrid(binary, opts);
+        // Try each candidate: warp it, then count the grid lines inside. A real
+        // grid yields 15-20 of 20 across every fixture that reads; the gravel photo
+        // that produced 42 invented clues yields 6. Picking by evidence rather than
+        // by blob size is what stops a background from being read as a board.
+        var proposals = gridCandidates(binary, opts);
+        var chosen = null, attempt, candidate, warpedTry, prepared;
+        for (attempt = 0; attempt < proposals.length; attempt++) {
+          candidate = proposals[attempt];
+          warpedTry = warpToSquare(gray, candidate.corners, opts);
+          if (!warpedTry) { continue; }
+          prepared = prepareWarp(warpedTry, opts);
+          if (!chosen || prepared.evidence > chosen.prepared.evidence) {
+            chosen = { candidate: candidate, prepared: prepared };
+          }
+          if (prepared.evidence >= opts.goodLineEvidence) { break; }
+        }
         t.detect = lap();
-        if (!grid) {
-          result.reason = "Couldn't find a sudoku grid in that image. Try a flatter, " +
-            "better-lit shot with the whole grid in frame.";
-          result.gridRejected = 'no candidate covered enough of the frame';
-          return finish(result);
-        }
-        result.corners = toSourceSpace(grid.corners, result.input.scale);
-        result.gridSource = grid.source;
-        result.gridRejected = grid.rejected;
 
-        var warped = warpToSquare(gray, grid.corners, opts);
-        t.warp = lap();
-        if (!warped) {
-          result.reason = 'The four corners found are degenerate, so the image cannot be rectified.';
+        if (!chosen || chosen.prepared.evidence < opts.minLineEvidence) {
+          result.reason = "Couldn't find a sudoku grid in that image" +
+            (chosen ? " - the strongest candidate only had " + chosen.prepared.evidence +
+                      " of 20 grid lines" : "") +
+            ". Try a flatter, better-lit shot with the whole grid in frame.";
+          result.gridRejected = chosen
+            ? 'line evidence ' + chosen.prepared.evidence + '/20'
+            : 'no candidate';
+          result.gridSource = chosen ? chosen.candidate.source : null;
           return finish(result);
         }
+
+        result.corners = toSourceSpace(chosen.candidate.corners, result.input.scale);
+        result.gridSource = chosen.candidate.source;
+        result.gridRejected = chosen.candidate.rejected;
+        result.lineEvidence = chosen.prepared.evidence;
+
+        var warped = chosen.prepared.warped;
+        t.warp = 0;
         result.warped = warped.canvas;
-
-        var cells = extractCells(warped, opts);
+        var cells = extractCells(chosen.prepared, opts);
         t.cells = lap();
         if (opts.debug) {
           result.debug.cells = cells.cells;
@@ -1126,7 +1308,20 @@ var SudokuVision = (function () {
         for (i = 0; i < cells.cells.length; i++) {
           cell = cells.cells[i];
           r = cell.row; c = cell.col;
-          if (cell.empty) { result.confidence[r][c] = 1; continue; }
+          if (cell.empty) {
+            result.confidence[r][c] = 1;
+            // Empty because there was nothing there is certain. Empty because
+            // something was found and judged too sparse to be a digit is a close
+            // call - real digits start at 0.161 fill and the bar is 0.15 - so that
+            // one is shown. The other rejections (a speck, a stray mark, nothing
+            // near the centre) are not close calls, and flagging them all put the
+            // amber count up from 42 to 89 for no gain.
+            if (cell.reason === 'too sparse') {
+              result.confidence[r][c] = 0;
+              result.uncertain.push([r, c]);
+            }
+            continue;
+          }
           guess = classify(cell.bitmap28, opts);
           result.confidence[r][c] = guess.confidence;
           result.candidates[r][c] = guess.candidates;
@@ -1203,8 +1398,9 @@ var SudokuVision = (function () {
     stages: {
       toGray: toGray,
       adaptiveThreshold: adaptiveThreshold,
-      findGrid: findGrid,
+      gridCandidates: gridCandidates,
       warpToSquare: warpToSquare,
+      prepareWarp: prepareWarp,
       extractCells: extractCells,
       findGridLines: findGridLines,
       runProjection: runProjection,

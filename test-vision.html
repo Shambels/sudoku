@@ -166,7 +166,8 @@
       var got = result.grid;
       var s = {
         file: fixture.file, tags: fixture.tags || [], notes: fixture.notes || '',
-        ok: result.ok, reason: result.reason, notImplemented: result.notImplemented,
+        ok: result.ok, refused: !result.ok && !result.notImplemented,
+        reason: result.reason, notImplemented: result.notImplemented,
         msClassify: result.timings ? Math.round(result.timings.classify || 0) : null,
         gridSource: result.gridSource || null, gridRejected: result.gridRejected || null,
         stage: result.stage, ms: result.timings ? Math.round(result.timings.total) : null,
@@ -272,11 +273,15 @@
     function pct(n, d) { return d ? (100 * n / d).toFixed(1) + '%' : '-'; }
 
     function aggregate(rows) {
-      var a = { n: rows.length, ran: 0, exact: 0, clues: 0, falseInk: 0, missed: 0,
+      // A refused photo is one honest "I can't read this", not 81 wrong answers.
+      // Counting its cells as errors made the accuracy figures meaningless and, worse,
+      // made refusing look far more costly than guessing.
+      var a = { n: rows.length, refused: 0, ran: 0, exact: 0, clues: 0, falseInk: 0, missed: 0,
                 occChecked: 0, occFP: 0, occFN: 0,
                 digitTotal: 0, digitRight: 0, wrong: 0, flaggedWrong: 0, flagged: 0,
                 cornerErrors: [], ms: 0 };
       rows.forEach(function (s) {
+        if (s.refused) { a.refused++; return; }
         if (s.ok) { a.ran++; }
         if (s.exact) { a.exact++; }
         a.clues += s.clues; a.falseInk += s.falseInk; a.missed += s.missed;
@@ -294,7 +299,8 @@
 
     function statsRow(label, a) {
       return '<tr><td>' + label + '</td>' +
-        '<td class="num">' + a.ran + '/' + a.n + '</td>' +
+        '<td class="num">' + a.ran + '/' + a.n +
+          (a.refused ? ' <span class="warn">(' + a.refused + ' refused)</span>' : '') + '</td>' +
         '<td class="num ' + (a.exact === a.n && a.n ? 'ok' : 'bad') + '">' +
           a.exact + '/' + a.n + '</td>' +
         '<td class="num">' + pct(a.clues - a.missed, a.clues) + '</td>' +
@@ -322,6 +328,9 @@
     function renderTotals() {
       var a = aggregate(lastResults);
       el.totals.innerHTML = '<table>' + HEAD + statsRow('all', a) + '</table>' +
+        '<p class="legend">A refused photo is excluded from the cell tallies and counted ' +
+        'separately: refusing to read is not the same as reading wrongly, and scoring it ' +
+        'as 81 errors would make guessing look better than admitting defeat.</p>' +
         '<p class="legend">Plain per-cell accuracy is deliberately not shown: about 64% of cells ' +
         'are empty, so a pipeline that reads nothing at all would score 64% and look respectable. ' +
         'Clue recall is (clues found / clues present), which that same do-nothing pipeline scores ' +
@@ -422,7 +431,7 @@
     function card(s, result, fixture) {
       var d = document.createElement('details');
       var verdict = s.notImplemented ? '<span class="warn">stub: ' + s.stage + '</span>'
-        : !s.ok ? '<span class="bad">no grid</span>'
+        : s.refused ? '<span class="warn">refused</span>'
         : s.exact ? '<span class="ok">exact</span>'
         : '<span class="bad">' + s.wrong.length + ' wrong</span>';
 
