@@ -170,89 +170,30 @@ def sudokuSolver(board):
     board[i][j] = 0
     return False
 
+# Parses an 81-character board: row by row, '.' or '0' for an empty cell.
+# The web app's "Copy board" button produces exactly this, so a puzzle read from
+# a photo can be pasted straight in here.
+def parseBoard(text):
+    cells = [c for c in text if c.isdigit() or c == "."]
+    if not len(cells) == 81:
+        raise ValueError("expected 81 cells, got " + str(len(cells)))
+    board = [[0 for x in range(9)] for x in range(9)]
+    for index, cell in enumerate(cells):
+        board[index // 9][index % 9] = 0 if cell == "." else int(cell)
+    return board
+
+
 def main():
-    SudokuBoard = [[0 for x in range(9)] for x in range(9)]
-    SudokuBoard[0][0] = 0
-    SudokuBoard[0][1] = 0
-    SudokuBoard[0][2] = 8
-    SudokuBoard[0][3] = 7
-    SudokuBoard[0][4] = 3
-    SudokuBoard[0][5] = 4
-    SudokuBoard[0][6] = 1
-    SudokuBoard[0][7] = 6
-    SudokuBoard[0][8] = 0
-    SudokuBoard[1][0] = 1
-    SudokuBoard[1][1] = 0
-    SudokuBoard[1][2] = 0
-    SudokuBoard[1][3] = 0
-    SudokuBoard[1][4] = 8
-    SudokuBoard[1][5] = 5
-    SudokuBoard[1][6] = 0
-    SudokuBoard[1][7] = 0
-    SudokuBoard[1][8] = 0
-    SudokuBoard[2][0] = 7
-    SudokuBoard[2][1] = 0
-    SudokuBoard[2][2] = 0
-    SudokuBoard[2][3] = 0
-    SudokuBoard[2][4] = 1
-    SudokuBoard[2][5] = 9
-    SudokuBoard[2][6] = 0
-    SudokuBoard[2][7] = 0
-    SudokuBoard[2][8] = 0
-    SudokuBoard[3][0] = 0
-    SudokuBoard[3][1] = 0
-    SudokuBoard[3][2] = 3
-    SudokuBoard[3][3] = 0
-    SudokuBoard[3][4] = 9
-    SudokuBoard[3][5] = 0
-    SudokuBoard[3][6] = 0
-    SudokuBoard[3][7] = 0
-    SudokuBoard[3][8] = 0
-    SudokuBoard[4][0] = 0
-    SudokuBoard[4][1] = 2
-    SudokuBoard[4][2] = 0
-    SudokuBoard[4][3] = 5
-    SudokuBoard[4][4] = 0
-    SudokuBoard[4][5] = 0
-    SudokuBoard[4][6] = 9
-    SudokuBoard[4][7] = 1
-    SudokuBoard[4][8] = 3
-    SudokuBoard[5][0] = 9
-    SudokuBoard[5][1] = 0
-    SudokuBoard[5][2] = 0
-    SudokuBoard[5][3] = 3
-    SudokuBoard[5][4] = 0
-    SudokuBoard[5][5] = 0
-    SudokuBoard[5][6] = 0
-    SudokuBoard[5][7] = 0
-    SudokuBoard[5][8] = 7
-    SudokuBoard[6][0] = 0
-    SudokuBoard[6][1] = 0
-    SudokuBoard[6][2] = 6
-    SudokuBoard[6][3] = 0
-    SudokuBoard[6][4] = 0
-    SudokuBoard[6][5] = 3
-    SudokuBoard[6][6] = 8
-    SudokuBoard[6][7] = 0
-    SudokuBoard[6][8] = 1
-    SudokuBoard[7][0] = 3
-    SudokuBoard[7][1] = 0
-    SudokuBoard[7][2] = 0
-    SudokuBoard[7][3] = 0
-    SudokuBoard[7][4] = 0
-    SudokuBoard[7][5] = 0
-    SudokuBoard[7][6] = 0
-    SudokuBoard[7][7] = 2
-    SudokuBoard[7][8] = 0
-    SudokuBoard[8][0] = 0
-    SudokuBoard[8][1] = 0
-    SudokuBoard[8][2] = 0
-    SudokuBoard[8][3] = 9
-    SudokuBoard[8][4] = 0
-    SudokuBoard[8][5] = 0
-    SudokuBoard[8][6] = 3
-    SudokuBoard[8][7] = 4
-    SudokuBoard[8][8] = 0
+    SudokuBoard = parseBoard(
+        "..873416."
+        "1...85..."
+        "7...19..."
+        "..3.9...."
+        ".2.5..913"
+        "9..3....7"
+        "..6..38.1"
+        "3......2."
+        "...9..34.")
     printBoard(SudokuBoard)
 
     # Contradictory clues can never be solved, so report them instead of

@@ -1,10 +1,13 @@
+// The DOM lookups are guarded so this file can also be loaded by a page that has
+// no grid - test-vision.html does exactly that, to measure the real repair code
+// rather than a copy of it that could drift away from what the app runs.
 var solveBtn = document.getElementById('solveBtn');
 var problemGrid = document.getElementById('problem');
 var solutionGrid = document.getElementById('solution');
 var alert_title = document.getElementById('alert');
 var selected;
 var i;
-var clues = Array.from(problemGrid.children);
+var clues = problemGrid ? Array.from(problemGrid.children) : [];
 var size = 9;
 
 function displaySolution(grid) {
@@ -298,7 +301,326 @@ function solve(grid) {
   return false;
 }
 
+
+// ---------------------------------------------------------------------------
+// Uniqueness, used by the photo repair below.
+//
+// solve() above stops at the first solution, which cannot tell a board with one
+// solution from a board with hundreds. Counting to two is enough to answer the
+// only question that matters: is this reading of the photo the unique one?
+//
+// This picks the most constrained cell rather than the first empty one. With the
+// first-empty order a wrong clue can send the search down a branch that takes
+// minutes; with fewest-candidates-first the same board resolves in milliseconds.
+// The node budget is the backstop: a search that blows it reports itself as
+// unfinished rather than freezing the page.
+function countSolutions(grid, limit, budget) {
+  let board = grid.map(row => row.slice());
+  let found = 0;
+  let nodes = 0;
+  let exhausted = false;
+
+  function mostConstrained() {
+    let best = null;
+    let bestCount = 10;
+    for (let x = 0; x < size; x++) {
+      for (let y = 0; y < size; y++) {
+        if (board[x][y] !== 0) {
+          continue;
+        }
+        let possible = getPossibleEntries(board, x, y);
+        let count = 0;
+        for (let n = 1; n < 10; n++) {
+          if (possible[n] !== 0) {
+            count++;
+          }
+        }
+        if (count === 0) {
+          return { dead: true };
+        }
+        if (count < bestCount) {
+          bestCount = count;
+          best = { x: x, y: y, possible: possible };
+          if (count === 1) {
+            return { spot: best };
+          }
+        }
+      }
+    }
+    return best ? { spot: best } : { full: true };
+  }
+
+  function search() {
+    if (found >= limit || exhausted) {
+      return;
+    }
+    if (++nodes > budget) {
+      exhausted = true;
+      return;
+    }
+    let next = mostConstrained();
+    if (next.dead) {
+      return;
+    }
+    if (next.full) {
+      found++;
+      return;
+    }
+    let spot = next.spot;
+    for (let n = 1; n < 10; n++) {
+      if (spot.possible[n] === 0) {
+        continue;
+      }
+      board[spot.x][spot.y] = spot.possible[n];
+      search();
+      board[spot.x][spot.y] = 0;
+      if (found >= limit || exhausted) {
+        return;
+      }
+    }
+  }
+
+  search();
+  return { count: found, exhausted: exhausted, nodes: nodes };
+}
+
+// ---------------------------------------------------------------------------
+// Solver-assisted repair (plan section 5.2).
+//
+// The solver is a second opinion on the photo. A misread digit usually makes the
+// board unsolvable, so trying the classifier's runner-up guesses for the cells it
+// was least sure about, and keeping the combination that produces exactly one
+// solution, turns a good per-cell accuracy into a much better per-grid one.
+//
+// The rule is deliberately strict: adopt only when exactly one combination gives a
+// uniquely solvable board. If several do, the photo genuinely is ambiguous and the
+// honest move is to flag them all and let a person look, not to guess.
+var REPAIR = {
+  cells: 4,          // least-confident cells to reconsider
+  maxBoards: 48,     // ceiling on combinations tried
+  budget: 150000     // search nodes per uniqueness check
+};
+
+function repairBoard(extraction) {
+  const base = extraction.grid.map(row => row.slice());
+  const clean = { grid: base, changed: [], status: 'unchanged', tried: 0 };
+
+  if (findConflicts(base).size === 0) {
+    let check = countSolutions(base, 2, REPAIR.budget);
+    if (check.count === 1) {
+      clean.status = 'already unique';
+      return clean;
+    }
+    if (check.exhausted) {
+      clean.status = 'search budget exhausted';
+      return clean;
+    }
+  }
+
+  // Cells worth reconsidering, least confident first. A cell the classifier called
+  // background counts too: its best digit candidate is exactly the missing clue.
+  let suspects = [];
+  for (let x = 0; x < size; x++) {
+    for (let y = 0; y < size; y++) {
+      let candidates = extraction.candidates[x][y];
+      if (!candidates) {
+        continue;
+      }
+      let alternatives = SudokuVision.digitCandidates(candidates, 2)
+        .map(entry => entry[0])
+        .filter(digit => digit !== base[x][y]);
+      if (!alternatives.length) {
+        continue;
+      }
+      suspects.push({
+        x: x, y: y,
+        confidence: extraction.confidence[x][y],
+        options: [base[x][y]].concat(alternatives.slice(0, 1))
+      });
+    }
+  }
+  suspects.sort((a, b) => a.confidence - b.confidence);
+  suspects = suspects.slice(0, REPAIR.cells);
+  if (!suspects.length) {
+    clean.status = 'nothing to reconsider';
+    return clean;
+  }
+
+  let winners = [];
+  let tried = 0;
+  const total = suspects.reduce((n, s) => n * s.options.length, 1);
+
+  for (let mask = 0; mask < total && tried < REPAIR.maxBoards; mask++) {
+    let rest = mask;
+    let trial = base.map(row => row.slice());
+    let changes = [];
+    for (let i = 0; i < suspects.length; i++) {
+      let spot = suspects[i];
+      let pick = spot.options[rest % spot.options.length];
+      rest = Math.floor(rest / spot.options.length);
+      if (pick !== base[spot.x][spot.y]) {
+        trial[spot.x][spot.y] = pick;
+        changes.push([spot.x, spot.y, base[spot.x][spot.y], pick]);
+      }
+    }
+    if (!changes.length) {
+      continue;   // this is the board we already rejected
+    }
+    tried++;
+    if (findConflicts(trial).size > 0) {
+      continue;
+    }
+    let check = countSolutions(trial, 2, REPAIR.budget);
+    if (check.count === 1 && !check.exhausted) {
+      winners.push({ grid: trial, changed: changes });
+    }
+  }
+
+  if (winners.length === 1) {
+    return { grid: winners[0].grid, changed: winners[0].changed,
+             status: 'repaired', tried: tried };
+  }
+  return { grid: base, changed: [], tried: tried,
+           status: winners.length ? 'ambiguous' : 'no repair found',
+           ambiguous: winners.length };
+}
+
+// ---------------------------------------------------------------------------
+// Reading a puzzle from a photo.
+
+function fillGrid(grid) {
+  for (let x = 0; x < size; x++) {
+    for (let y = 0; y < size; y++) {
+      clues[y + (x * size)].value = grid[x][y] ? String(grid[x][y]) : '';
+    }
+  }
+}
+
+function clearUncertain() {
+  clues.forEach(spot => spot.classList.remove('uncertain'));
+}
+
+function markUncertain(list) {
+  list.forEach(([x, y]) => clues[y + (x * size)].classList.add('uncertain'));
+}
+
+function boardString(grid) {
+  let out = '';
+  for (let x = 0; x < size; x++) {
+    for (let y = 0; y < size; y++) {
+      out += grid[x][y] ? String(grid[x][y]) : '.';
+    }
+  }
+  return out;
+}
+
+function showPreview(canvas) {
+  const preview = document.getElementById('preview');
+  if (!preview || !canvas) {
+    return;
+  }
+  preview.width = canvas.width;
+  preview.height = canvas.height;
+  preview.getContext('2d').drawImage(canvas, 0, 0);
+  preview.hidden = false;
+}
+
+function readPhoto(source) {
+  const status = document.getElementById('importStatus');
+  clearConflicts();
+  clearUncertain();
+  status.textContent = 'Reading the photo...';
+
+  SudokuVision.extract(source).then(result => {
+    if (!result.ok) {
+      status.textContent = result.reason;
+      return;
+    }
+    showPreview(result.warped);
+
+    const repair = repairBoard(result);
+    const grid = repair.grid;
+    fillGrid(grid);
+
+    // Two independent reasons to doubt a cell: the classifier was unsure, or the
+    // clue breaks a sudoku rule. Neither catches everything on its own; measured
+    // against the fixtures, together they catch every wrong cell.
+    const doubt = new Set(result.uncertain.map(([x, y]) => y + (x * size)));
+    findConflicts(grid).forEach(index => doubt.add(index));
+    repair.changed.forEach(([x, y]) => doubt.delete(y + (x * size)));
+    markUncertain(Array.from(doubt).map(index => [Math.floor(index / size), index % size]));
+
+    let count = 0;
+    grid.forEach(row => row.forEach(v => { if (v) { count++; } }));
+
+    let message = 'Read ' + count + ' clues';
+    if (repair.status === 'repaired') {
+      message += ', corrected ' + repair.changed.length +
+                 (repair.changed.length === 1 ? ' cell' : ' cells') + ' using the solver';
+    } else if (repair.status === 'ambiguous') {
+      message += ', but ' + repair.ambiguous + ' different readings all solve';
+    }
+    message += doubt.size
+      ? '. Check the ' + doubt.size + ' highlighted ' + (doubt.size === 1 ? 'cell' : 'cells') + '.'
+      : '. Nothing looks doubtful.';
+    status.textContent = message;
+    lastReadBoard = boardString(grid);
+  }).catch(err => {
+    status.textContent = 'Could not read that image: ' + err.message;
+  });
+}
+
+var lastReadBoard = null;
+
+function setupPhotoImport() {
+  const picker = document.getElementById('photo');
+  const button = document.getElementById('photoBtn');
+  const copyBtn = document.getElementById('copyBoard');
+  const status = document.getElementById('importStatus');
+  if (!picker || !button || !copyBtn || typeof SudokuVision === 'undefined') {
+    return;
+  }
+
+  button.addEventListener('click', () => picker.click());
+  picker.addEventListener('change', event => {
+    if (event.target.files[0]) {
+      readPhoto(event.target.files[0]);
+    }
+  });
+
+  // Drag and drop anywhere on the page, and paste from the clipboard - a phone
+  // screenshot is usually already in the clipboard.
+  ['dragover', 'drop'].forEach(name => {
+    document.addEventListener(name, event => {
+      event.preventDefault();
+      document.body.classList.toggle('dropping', name === 'dragover');
+      if (name === 'drop' && event.dataTransfer.files[0]) {
+        readPhoto(event.dataTransfer.files[0]);
+      }
+    });
+  });
+  document.addEventListener('dragleave', () => document.body.classList.remove('dropping'));
+  document.addEventListener('paste', event => {
+    const item = Array.from(event.clipboardData.items)
+      .find(entry => entry.type.indexOf('image') === 0);
+    if (item) {
+      readPhoto(item.getAsFile());
+    }
+  });
+
+  copyBtn.addEventListener('click', () => {
+    const board = lastReadBoard || boardString(readGrid(clues));
+    navigator.clipboard.writeText(board).then(() => {
+      status.textContent = 'Copied - paste it into sudoku.py: parseBoard("' +
+        board.slice(0, 12) + '...")';
+    });
+  });
+}
+
 function setup() {
+  if (!problemGrid) {
+    return;
+  }
   for (let i = 0; i < problemGrid.children.length; i++) {
     const element = problemGrid.children[i];
     element.addEventListener('click', () => {
@@ -338,6 +660,9 @@ function start() {
 }
 
 setup();
-solveBtn.addEventListener('click', () => {
-  start();
-})
+setupPhotoImport();
+if (solveBtn) {
+  solveBtn.addEventListener('click', () => {
+    start();
+  });
+}

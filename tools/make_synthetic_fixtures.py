@@ -90,13 +90,83 @@ def solved_grid(rng):
     return board
 
 
+def count_solutions(board, limit=2):
+    """How many ways the board can be completed, counting no further than `limit`.
+
+    Picks the most constrained cell rather than the first empty one, which keeps
+    this fast enough to run once per removal while digging.
+    """
+    found = [0]
+
+    def allowed(r, c, v):
+        for i in range(9):
+            if board[r][i] == v or board[i][c] == v:
+                return False
+        br, bc = r - r % 3, c - c % 3
+        for i in range(br, br + 3):
+            for j in range(bc, bc + 3):
+                if board[i][j] == v:
+                    return False
+        return True
+
+    def search():
+        if found[0] >= limit:
+            return
+        best = None
+        best_count = 10
+        for r in range(9):
+            for c in range(9):
+                if board[r][c]:
+                    continue
+                options = [v for v in range(1, 10) if allowed(r, c, v)]
+                if not options:
+                    return
+                if len(options) < best_count:
+                    best_count = len(options)
+                    best = (r, c, options)
+                    if best_count == 1:
+                        break
+            if best_count == 1:
+                break
+        if best is None:
+            found[0] += 1
+            return
+        r, c, options = best
+        for v in options:
+            board[r][c] = v
+            search()
+            board[r][c] = 0
+            if found[0] >= limit:
+                return
+
+    search()
+    return found[0]
+
+
 def dig(solution, clues, rng):
-    """Remove cells from a solved grid. Always leaves a solvable board."""
+    """Remove cells while the board still has exactly one solution.
+
+    Digging at random without this check produces boards with many solutions -
+    which are not sudoku puzzles. Every real puzzle has a unique solution, and the
+    solver-assisted repair in plan section 5.2 relies on that: it accepts a reading
+    only when exactly one candidate board solves uniquely. Fixtures that were merely
+    "solvable" made that mechanism untestable, and silently so.
+
+    `clues` is a floor, not a target: digging stops there even if more could go.
+    """
     board = [row[:] for row in solution]
     cells = [(r, c) for r in range(9) for c in range(9)]
     rng.shuffle(cells)
-    for r, c in cells[: 81 - clues]:
+    remaining = 81
+    for r, c in cells:
+        if remaining <= clues:
+            break
+        saved = board[r][c]
         board[r][c] = 0
+        if count_solutions(board) == 1:
+            remaining -= 1
+        else:
+            board[r][c] = saved
     return board
 
 
@@ -382,6 +452,10 @@ def main():
         rng = random.Random(args.seed * 1000 + i)
         np_rng = np.random.default_rng(args.seed * 1000 + i)
         board, img, quad = build(scenario, rng, np_rng, fonts)
+        solutions = count_solutions([row[:] for row in board])
+        if solutions != 1:
+            raise SystemExit("fixture %s has %d solutions - not a puzzle" %
+                             (scenario["name"], solutions))
         filename = "syn-%02d-%s.jpg" % (i, scenario["name"])
         img.save(os.path.join(args.out, filename), quality=scenario.get("quality", 82))
         entries.append({
@@ -391,7 +465,8 @@ def main():
             "tags": ["synthetic"] + scenario["tags"],
             "notes": scenario.get("notes", ""),
         })
-        print("%-34s %s" % (filename, "".join(scenario["tags"])))
+        print("%-34s %2d clues  %s" % (filename, sum(1 for v in board_to_string(board)
+                                                        if v != "."), " ".join(scenario["tags"])))
 
     manifest = os.path.join(args.out, "manifest.js")
     existing = []
