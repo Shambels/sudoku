@@ -8,12 +8,12 @@
   display: grid;
   grid-template-columns: 50px repeat(4, 50px 50px);
   text-align: center;
-  margin-top: 50px;
+  margin-top: 24px;
   font-size: 20px;
 }
 
 #solveBtn {
-  margin-top: 50px;
+  margin-top: 24px;
   padding: 0 50px;
 }
 
@@ -65,4 +65,69 @@ input {
 
 .case.conflict.selected {
   background-color: #eeb0b0;
+}
+
+#import {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  margin: 24px auto 0;
+  padding: 0 16px;
+  max-width: 900px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+#import button {
+  font: inherit;
+  padding: 7px 14px;
+  border: 1px solid #b9bec7;
+  border-radius: 6px;
+  background: #f3f4f6;
+  cursor: pointer;
+}
+
+#import button:hover {
+  background: #e7e9ee;
+}
+
+#importStatus {
+  color: #4a5060;
+  font-size: 14px;
+}
+
+/* The rectified grid, so a bad detection is obvious at a glance rather than
+   showing up later as a board full of wrong digits. */
+#previewWrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+#preview {
+  display: block;
+  width: 180px;
+  height: 180px;
+  border: 1px solid #c9ced6;
+  border-radius: 4px;
+}
+
+body.dropping {
+  outline: 3px dashed #6aa8ef;
+  outline-offset: -12px;
+}
+
+/* Amber, not red: the cell is not known to be wrong, only not trusted. Red is
+   already spoken for by .conflict, which means a clue that breaks a rule. */
+.case.uncertain {
+  background-color: #fdf0d0;
+}
+
+.case.uncertain.selected {
+  background-color: #f5e0aa;
+}
+
+.case.conflict.uncertain {
+  background-color: #f8d0d0;
 }

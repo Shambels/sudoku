@@ -10,6 +10,17 @@
 </head>
 
 <body>
+  <section id="import">
+    <button id="photoBtn" type="button">Read from a photo</button>
+    <input type="file" id="photo" accept="image/*" capture="environment" hidden>
+    <button id="copyBoard" type="button">Copy board</button>
+    <span id="importStatus">Pick a photo, drop one anywhere, or paste one.</span>
+  </section>
+
+  <section id="previewWrap">
+    <canvas id="preview" hidden title="the grid as the reader rectified it"></canvas>
+  </section>
+
   <section id="container">
     <div id="problem">
       <input maxlength="1" min="1" max="9" class="case c1">
@@ -182,6 +193,8 @@
   <section>
     <h1 id="alert"></h1>
   </section>
+  <script src="digit-model.js"></script>
+  <script src="vision.js"></script>
   <script src="sudoku.js"></script>
 </body>
 

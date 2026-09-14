@@ -12,17 +12,20 @@ Both share the same approach: backtracking that stops at the first solution, wit
 pre-flight check that reports contradictory clues instead of searching a board that
 can never be solved.
 
-## Reading a puzzle from a photo (in progress)
+## Reading a puzzle from a photo
 
-`docs/photo-to-grid-plan.md` is the design: find the grid, rectify it, cut 81 cells,
-classify each one — all in vanilla canvas JS with a ~30 KB embedded digit model, no
-runtime dependencies, still openable from `file://`.
+Open `index.html`, then pick a photo, drop one on the page, or paste one. The grid fills
+in, cells the reader is unsure about turn amber, and **Copy board** gives you an
+81-character string you can paste into `sudoku.py`.
 
-Built so far:
+Find the grid, rectify it, cut 81 cells, classify each one — all in vanilla canvas JS with
+a 37 KB embedded digit model, no runtime dependencies, still openable from `file://`.
+About 130 ms per photo. `docs/photo-to-grid-plan.md` is the design and the measurements.
 
 | | |
 |---|---|
 | `vision.js` | the whole pipeline: threshold, detect, warp, segment, classify |
+| `sudoku.js` | the solver, plus photo import, uniqueness checking and solver-assisted repair |
 | `test-vision.html` | scores the pipeline over every labelled fixture |
 | `tools/make_synthetic_fixtures.py` | regenerates the 21 synthetic fixtures |
 | `tools/label-fixture.html` | turns a real photo into a manifest entry |

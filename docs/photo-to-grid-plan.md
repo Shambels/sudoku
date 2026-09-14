@@ -136,12 +136,13 @@ Three layers, all nearly free because the repo already has the pieces:
 1. **Rule conflicts.** Run the existing `findConflicts(grid)` on the extracted board. A misread
    digit very often duplicates a value in its row, column or box. Union those cells into the
    flagged set. Zero new code.
-2. **Solver-assisted repair.** If the board has conflicts or no solution, take the *k* lowest-confidence
-   cells (k ≤ 4) and search their top-2 candidates — ≤ 16 boards, each solved in milliseconds.
-   If exactly one combination yields a solvable board, adopt it silently; if several do, flag them
-   all and let the user pick. This needs one small addition to `sudoku.js`: a `countSolutions(grid, 2)`
-   that stops at two, so "unique solution" is checkable. This is the highest-leverage item in the
-   whole plan — it converts per-cell accuracy into near-perfect grid accuracy.
+2. **Solver-assisted repair.** If the board has conflicts or no unique solution, take the *k*
+   lowest-confidence cells (k ≤ 4) and search their top-2 candidates — ≤ 16 boards, each solved in
+   milliseconds. If exactly one combination yields a *uniquely* solvable board, adopt it; if several
+   do, flag them all and let the user pick. Needs `countSolutions(grid, 2)` in `sudoku.js`.
+   *Measured in step 6: this fixed 1 of 7 wrong cells. The claim that once stood here — that it is
+   the highest-leverage item in the plan — was wrong; layer 1 does the heavy lifting. Kept because
+   it costs 1 ms and broke nothing.*
 3. **The human.** Flagged cells render amber and the grid is editable, which it already is. One
    glance at three amber cells beats any amount of model tuning.
 
@@ -336,6 +337,40 @@ Three things the fixtures taught us that the plan did not anticipate:
    detect 13 ms, warp 6 ms, cells 7 ms, classify 69 ms, total 131 ms - inside the
    100-200 ms budget in §2, with the classifier now the dominant cost.
 
+## Findings from step 6
+
+1. **None of the fixtures was a real sudoku puzzle.** The generator dug clues out at
+   random without checking that one solution remained, so all 21 boards had many
+   solutions. Solver repair depends entirely on uniqueness, so it could never have worked
+   — and it failed *silently*, reporting "no repair found" on grids that were already
+   perfect. The generator now digs only while the solution stays unique, and refuses to
+   write a fixture that is not a proper puzzle. This bug had been in place since step 1,
+   and only step 6 was capable of noticing it.
+
+2. **§5.2 overstated the solver's leverage, and the measurement corrected it.** The plan
+   called solver repair "the highest-leverage item in the whole plan". Measured: it fixed
+   **1** of 7 wrong cells, turning 16/21 perfect grids into 17/21. Confidence flagging
+   caught **7 of 7**. The honest ranking is the reverse of what was written. Repair is
+   still worth its 1 ms — it is free accuracy and it broke nothing — but it is a
+   supplement, not the foundation.
+
+3. **A wrong digit that leaves the board uniquely solvable is invisible to the solver.**
+   `syn-14-blurred` reads one cell wrong and still solves uniquely, so repair never even
+   triggers. Only confidence flagging catches that class of error, which is the concrete
+   reason the two layers are not redundant.
+
+4. **Reconsidering more cells does not help.** Swept the repair width from 2 to 7 cells:
+   identical results at every setting, nothing gained and nothing broken. Four stays.
+
+5. **`countSolutions` needed a different search order from `solve()`.** Picking the most
+   constrained cell rather than the first empty one is what makes the uniqueness check
+   affordable — a typical board resolves in ~165 nodes. The node budget is the backstop so
+   a pathological board reports itself unfinished instead of freezing the page.
+
+6. **`sudoku.js` now loads without the app's DOM.** The harness loads the real solver and
+   measures the repair that actually ships, rather than a copy that could quietly drift
+   from it.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
@@ -365,5 +400,7 @@ Three things the fixtures taught us that the plan did not anticipate:
 - [x] **Step 5** — JS forward pass and confidence. Clue recall **99.7 %**, digit accuracy
       **98.7 %**, zero false ink, **16/21** grids exactly right, 131 ms per photo.
       Predictions match Python on all 610 fixture cells.
-- [ ] Step 6 — UI integration, conflicts, solver repair
+- [x] **Step 6** — UI, conflicts, solver repair. Clue recall **99.8 %**, digit accuracy
+      **99.0 %**, **7** wrong cells of 610 and **all 7 flagged**, **17/21** grids exactly
+      right after repair. Photo import works by file, drag-drop or paste.
 - [ ] Step 7 — threshold tuning
