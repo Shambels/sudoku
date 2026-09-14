@@ -1,133 +1,644 @@
-#container {
+/* Sudoku - dark theme.
+   Black ground, matrix green for everything that matters: the grid frame, the
+   primary action, solved digits, focus. Everything else stays quiet so the
+   green reads as signal rather than decoration. */
+
+:root {
+  --bg: #050705;
+  --bg-raised: #0a0e0a;
+  --panel: #0c120c;
+  --line: #1a241a;
+  --line-strong: #2b3b2b;
+  --text: #d9e6d9;
+  --muted: #7f9a7f;
+  --faint: #4c5f4c;
+
+  --green: #00ff41;
+  --green-dim: #00c837;
+  --green-ink: #06210b;
+  --green-glow: rgba(0, 255, 65, 0.35);
+  --green-tint: rgba(0, 255, 65, 0.10);
+
+  --red: #ff4d4d;
+  --red-tint: rgba(255, 77, 77, 0.16);
+  --amber: #ffb547;
+  --amber-tint: rgba(255, 181, 71, 0.16);
+
+  --cell: 48px;
+  --radius: 10px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  background:
+    radial-gradient(900px 500px at 50% -10%, rgba(0, 255, 65, 0.07), transparent 70%),
+    var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
 
-#problem,
-#solution {
-  display: grid;
-  grid-template-columns: 50px repeat(4, 50px 50px);
-  text-align: center;
-  margin-top: 24px;
-  font-size: 20px;
-}
+/* ---- Header ------------------------------------------------------------ */
 
-#solveBtn {
-  margin-top: 24px;
-  padding: 0 50px;
-}
-
-#alert {
-  display: flex;
-  justify-content: center;
-}
-
-.case {
-  padding-top: 12.5px;
-  padding-bottom: 12.5px;
-  justify-content: center;
-  align-items: center;
-  border: solid black 1px;
-}
-
-.x3 {
-  border-right: solid black 3px;
-  border-bottom: solid black 1px;
-  border-left: solid black 1px;
-  border-top: solid black 1px;
-}
-
-.y3 {
-  border-bottom: solid black 3px;
-  border-right: solid black 1px;
-  border-left: solid black 1px;
-  border-top: solid black 1px;
-}
-
-.x3.y3 {
-  border-right: solid black 3px !important;
-}
-
-input {
-  padding-left: 20px;
-  font-size: 20px;
-  color: transparent;
-  text-shadow: 0 0 0 black;
-}
-
-.case.selected {
-  background-color: lightgray;
-}
-
-.case.conflict {
-  background-color: #f8d0d0;
-}
-
-.case.conflict.selected {
-  background-color: #eeb0b0;
-}
-
-#import {
+.topbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  align-items: baseline;
+  gap: 6px 18px;
+  padding: 22px clamp(16px, 4vw, 40px) 18px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(5, 7, 5, 0.7);
+}
+
+.brand {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  margin: 24px auto 0;
-  padding: 0 16px;
-  max-width: 900px;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  gap: 10px;
 }
 
-#import button {
-  font: inherit;
-  padding: 7px 14px;
-  border: 1px solid #b9bec7;
-  border-radius: 6px;
-  background: #f3f4f6;
-  cursor: pointer;
+.brand .mark {
+  display: inline-flex;
+  color: var(--green);
+  filter: drop-shadow(0 0 6px var(--green-glow));
 }
 
-#import button:hover {
-  background: #e7e9ee;
+.brand h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-#importStatus {
-  color: #4a5060;
+.tagline {
+  margin: 0;
+  color: var(--muted);
   font-size: 14px;
 }
 
-/* The rectified grid, so a bad detection is obvious at a glance rather than
-   showing up later as a board full of wrong digits. */
-#previewWrap {
+/* ---- Layout ------------------------------------------------------------ */
+
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 4vw, 40px) 40px;
+}
+
+.foot {
+  padding: 16px clamp(16px, 4vw, 40px);
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.btn:hover {
+  border-color: var(--green-dim);
+  color: #fff;
+}
+
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-tint);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-quiet {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn-quiet:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.btn-icon {
+  position: relative;
+  padding: 6px;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.btn-icon:hover {
+  color: var(--green);
+  background: var(--green-tint);
+  border-color: transparent;
+}
+
+.btn-icon .icon-check {
+  display: none;
+}
+
+.btn-icon.copied {
+  color: var(--green);
+}
+
+.btn-icon.copied .icon-copy {
+  display: none;
+}
+
+.btn-icon.copied .icon-check {
+  display: block;
+}
+
+/* A word next to the icon while the copy is fresh, so the tick is not a puzzle. */
+.btn-icon.copied::after {
+  content: "Copied";
+  position: absolute;
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--green);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.btn-primary {
+  gap: 10px;
+  padding: 12px 22px;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--green-ink);
+  background: var(--green);
+  border-color: var(--green);
+  box-shadow: 0 0 18px var(--green-glow);
+}
+
+.btn-primary:hover {
+  color: var(--green-ink);
+  background: #33ff66;
+  box-shadow: 0 0 26px var(--green-glow);
+}
+
+.btn-primary[disabled] {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+/* ---- Toolbar and status ------------------------------------------------ */
+
+.toolbar {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  margin-top: 10px;
+  gap: 8px;
+}
+
+.status {
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  max-width: 62ch;
+}
+
+.alert {
+  min-height: 1.5em;
+  margin-top: 22px;
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.alert[data-kind="ok"] {
+  color: var(--green);
+  text-shadow: 0 0 10px var(--green-glow);
+}
+
+.alert[data-kind="error"] {
+  color: var(--red);
+}
+
+.alert[data-kind="busy"] {
+  color: var(--muted);
+}
+
+/* ---- Photo preview card ------------------------------------------------- */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.preview {
+  margin: 0 auto 22px;
+  width: fit-content;
+  min-width: min(360px, 100%);
+  max-width: 100%;
+}
+
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  border-radius: var(--radius);
+}
+
+.preview-head::-webkit-details-marker {
+  display: none;
+}
+
+.preview-head:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.preview-head:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+
+.preview-hint {
+  flex: 1;
+  color: var(--faint);
+  font-size: 13px;
+  text-align: right;
+}
+
+.preview-head .chevron {
+  color: var(--muted);
+  transition: transform 180ms ease;
+}
+
+.preview[open] .preview-head .chevron {
+  transform: rotate(180deg);
+}
+
+.preview[open] .preview-head {
+  border-bottom: 1px solid var(--line);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.preview-body {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  padding: 16px;
+}
+
+.preview figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview figcaption {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  max-width: 40ch;
 }
 
 #preview {
   display: block;
   width: 180px;
   height: 180px;
-  border: 1px solid #c9ced6;
-  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
 }
 
-body.dropping {
-  outline: 3px dashed #6aa8ef;
-  outline-offset: -12px;
+/* Corner picking: the fallback for a photo the detector cannot read. Four clicks
+   from someone who can see the grid beats any amount of guessing. */
+#picker {
+  display: block;
+  max-width: min(560px, 88vw);
+  height: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  cursor: crosshair;
+}
+
+/* ---- Boards ------------------------------------------------------------- */
+
+.boards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px 28px;
+}
+
+.board-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  padding: 0 2px;
+}
+
+/* Solve sits under the puzzle and spans it, so the eye reads grid, then action. */
+#solveBtn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.board-frame {
+  position: relative;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(9, var(--cell));
+  grid-auto-rows: var(--cell);
+  border: 2px solid var(--green);
+  border-radius: 3px;
+  box-shadow: 0 0 14px var(--green-glow), inset 0 0 14px rgba(0, 255, 65, 0.06);
+  background: var(--bg);
+}
+
+.case {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cell);
+  height: var(--cell);
+  margin: 0;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: calc(var(--cell) * 0.46);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  transition: background 100ms ease;
+}
+
+/* Thick lines between the 3x3 boxes, the outer edge belongs to the frame. */
+.case.x3 {
+  border-right: 2px solid var(--green-dim);
+}
+
+.case.y3 {
+  border-bottom: 2px solid var(--green-dim);
+}
+
+.board .case:nth-child(9n) {
+  border-right: 0;
+}
+
+.board .case:nth-child(n + 73) {
+  border-bottom: 0;
+}
+
+/* Inputs: the value is typed by the keyboard handler, the caret would only be noise. */
+input.case {
+  caret-color: transparent;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 0;
+}
+
+input.case::selection {
+  background: transparent;
+}
+
+input.case:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.case.selected {
+  background: var(--green-tint);
+  box-shadow: inset 0 0 0 2px var(--green);
+  color: #fff;
+}
+
+.case.conflict {
+  background: var(--red-tint);
+  color: var(--red);
+}
+
+.case.conflict.selected {
+  box-shadow: inset 0 0 0 2px var(--red);
 }
 
 /* Amber, not red: the cell is not known to be wrong, only not trusted. Red is
    already spoken for by .conflict, which means a clue that breaks a rule. */
 .case.uncertain {
-  background-color: #fdf0d0;
+  background: var(--amber-tint);
+  color: var(--amber);
 }
 
 .case.uncertain.selected {
-  background-color: #f5e0aa;
+  box-shadow: inset 0 0 0 2px var(--amber);
 }
 
 .case.conflict.uncertain {
-  background-color: #f8d0d0;
+  background: var(--red-tint);
+  color: var(--red);
+}
+
+/* Solution: the given clues stay as they were, the digits the solver found glow. */
+.board.solved .case {
+  color: var(--green);
+  text-shadow: 0 0 8px var(--green-glow);
+}
+
+.board.solved .case.given {
+  color: var(--text);
+  text-shadow: none;
+}
+
+/* ---- Solution reveal ---------------------------------------------------- */
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateX(-12px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+#solutionPanel.reveal {
+  animation: reveal 360ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes flash {
+  from {
+    box-shadow: 0 0 30px var(--green-glow), inset 0 0 40px rgba(0, 255, 65, 0.25);
+  }
+
+  to {
+    box-shadow: 0 0 14px var(--green-glow), inset 0 0 14px rgba(0, 255, 65, 0.06);
+  }
+}
+
+#solutionPanel.reveal .board {
+  animation: flash 900ms ease-out 200ms both;
+}
+
+/* ---- Drag and drop ------------------------------------------------------ */
+
+.drop-hint {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: rgba(5, 7, 5, 0.9);
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px var(--green-glow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.drop-hint span {
+  padding: 10px 18px;
+  background: var(--bg);
+  border: 1px dashed var(--green);
+  border-radius: 6px;
+}
+
+body.dropping #problemFrame {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green), 0 0 32px var(--green-glow);
+}
+
+body.dropping #problemFrame .board {
+  border-style: dashed;
+}
+
+body.dropping .drop-hint {
+  opacity: 1;
+}
+
+/* ---- Small screens ------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  :root {
+    --cell: min(calc((100vw - 52px) / 9), 44px);
+  }
+
+  .boards {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  #solutionPanel.reveal {
+    animation-name: reveal-up;
+  }
+
+  @keyframes reveal-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  #solutionPanel.reveal,
+  #solutionPanel.reveal .board {
+    animation: none;
+  }
 }

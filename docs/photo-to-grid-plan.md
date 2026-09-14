@@ -528,6 +528,55 @@ all four errors being dropped digits. It now reads **perfectly**.
    diagnostic that cracked it was rendering the warped binary and seeing the digits plainly
    present.
 
+## Answering real-04: what the investigation found, and what was built
+
+Five experiments, then two changes. The experiments mattered more than the changes.
+
+**The pipeline CAN read that photo.** A global sweep over position, size and rotation found
+the grid's true angle as a sharp spike - 1296 qualifying quads at +24 degrees against a
+handful at every other angle. Detection is the only broken part.
+
+**But line evidence is necessary, not sufficient - and that was a real hole.** The best
+quad that sweep produced scores **19/20 on grid lines and reads 48 of 81 cells wrong**,
+with corners running off the top of the frame. It locked onto periodic structure that is
+not the puzzle. Separately, masking the gravel got the photo to 13/20 - past the bar - while
+reading 16/81 wrong. The gate as built could be walked straight through.
+
+### Change 1: judge a candidate on whether it could be a sudoku
+
+Rule conflicts separate the populations where line counts do not: every correctly detected
+photo reads **0-4** cells into conflict, the 19/20 impostor reads **21**. Candidates are now
+accepted only if the board they produce has at most 10 conflicting cells. Note that clue
+*count* is not usable as a filter - `real-02` legitimately has 50 clues.
+
+The validating read is the read that is kept, so the ordinary case still costs one warp and
+one classification pass. 131 ms -> 160 ms per photo, still inside the section 2 budget.
+
+### Change 2: let a person place the corners
+
+Four clicks, offered automatically whenever extraction is refused. `opts.corners` skips
+detection entirely and the gates do not apply - someone pointing at the grid is better
+evidence than any heuristic. Validated against the 21 fixtures that carry ground-truth
+corners: hand-placed corners give 10 wrong cells against 7 for automatic detection, so the
+path is sound rather than merely present.
+
+### Ruled out, each by measurement
+
+- **Better quad fitting on the blob**: 10 -> 11 of 20. Insufficient.
+- **Global periodicity detection on the raw binary**: gravel swamps it. Every angle scores
+  0.70-0.86 at the minimum spacing; there is no grid signal to find.
+- **Page segmentation then detect**: the page is only weakly separable (local sd 11.2 on
+  paper against 17.1 on gravel), and the crude version turned an honest refusal into a
+  confident 16/81-wrong read. Worse than doing nothing.
+
+### Still open
+
+Automatic detection of a grid whose ink merges with page furniture. The rotation-first
+search is the promising route - find the angle with a cheap one-dimensional sweep, then
+search centre and size only at that angle - but it is speculative and is now unnecessary
+for correctness, because the photo is refused rather than misread and the corners can be
+set by hand.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
