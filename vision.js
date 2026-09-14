@@ -39,9 +39,11 @@ var SudokuVision = (function () {
                                   // Swept 0.78-0.96 against counter survival in 4/6/8/9:
                                   // tightening it does not thin strokes, it breaks the
                                   // loops, so the counters leak away instead of opening.
-    lineSearchFraction: 0.35,     // how far a grid line may sit from its nominal place
-    minLineStrength: 0.35,        // a real line inks this share of the image's width
-    minLineSpacing: 0.55,         // of nominal, before a line is treated as spurious
+    lineRunLength: 7,             // ink must run this far along a line to count as one
+    minGapRatio: 0.55,            // narrowest cell, as a fraction of a nominal ninth
+    maxGapRatio: 1.75,            // widest - hand-drawn grids are not evenly spaced
+    spacingPenalty: 1.5,          // mild pull towards regularity, per pixel of deviation
+    minLineStrength: 0.25,        // share of the width, for reporting how many were really found
     cellInset: 0.12,              // fraction trimmed off each side of a cell
     centerBoxFraction: 0.50,      // component must overlap this central box
     minInkFraction: 0.010,        // of the inset cell's area
@@ -527,44 +529,169 @@ var SudokuVision = (function () {
   // A homography pins the four corners exactly but cannot flatten a curled page,
   // so the interior lines of a real photo drift from their nominal ninths. Snap
   // each line to the nearest peak in the ink projection instead of assuming.
+  // A homography straightens perspective, not people. A hand-drawn line can slope
+  // or bow by most of a cell from one side of the grid to the other, and giving
+  // each line a single coordinate then cuts cells through the middle of digits.
+  // So each line is found globally first, then re-measured in vertical (or
+  // horizontal) bands and interpolated between them - the line is allowed to bend.
   function findGridLines(bin, size, opts) {
-    var rowSum = new Int32Array(size), colSum = new Int32Array(size);
-    var x, y, i;
+    return {
+      rows: fitLines(bin.ink, size, true, opts),
+      cols: fitLines(bin.ink, size, false, opts)
+    };
+  }
+
+  function fitLines(ink, size, horizontal, opts) {
+    var thick = thicken(ink, size, horizontal);
+    var positions = pickLines(
+      runProjection(thick, size, horizontal, opts.lineRunLength, 0, size), size, opts);
+
+    // One coordinate per line, deliberately.
+    //
+    // A hand-drawn line really can slope by most of a cell across the grid, and two
+    // attempts were made to follow it: free per-band placement, and a constrained
+    // least-squares slope. Both measured WORSE than this. Per-band placement snapped
+    // onto digit strokes (a 7's crossbar has a horizontal run like a line's), and
+    // the slope fit found slopes in printed grids that have none, misaligning cells
+    // that were previously right: on the printed fixture, 0 wrong cells became 4.
+    // The straight model wins on the evidence, so it stays until some photo shows
+    // otherwise. `at()` keeps the interface a bending version would need.
+    return {
+      positions: positions,
+      snapped: positions.snapped,
+      at: function (k) { return positions[k]; }
+    };
+  }
+
+  // One pixel of dilation across the line's direction, so a hand-drawn stroke that
+  // wanders by a pixel still reads as continuous.
+  function thicken(ink, size, horizontal) {
+    var out = new Uint8Array(size * size), x, y, i;
     for (y = 0; y < size; y++) {
       for (x = 0; x < size; x++) {
         i = y * size + x;
-        if (bin.ink[i]) { rowSum[y]++; colSum[x]++; }
+        if (!ink[i]) { continue; }
+        out[i] = 1;
+        if (horizontal) {
+          if (y > 0) { out[i - size] = 1; }
+          if (y < size - 1) { out[i + size] = 1; }
+        } else {
+          if (x > 0) { out[i - 1] = 1; }
+          if (x < size - 1) { out[i + 1] = 1; }
+        }
       }
     }
-    return { rows: pickLines(rowSum, size, opts), cols: pickLines(colSum, size, opts) };
+    return out;
   }
 
+  // Ink only counts towards a line if it runs along that line for a while. A plain
+  // ink-per-row count also sees digits, and on a grid whose cells are unevenly
+  // spaced a row of digits can outscore a genuine line. Requiring a run of ink
+  // makes the projection nearly blind to glyphs: a digit has no 7-pixel horizontal
+  // stroke, a grid line has one at every point along it.
+  //
+  // The image is first dilated by one pixel across the line's direction, so a
+  // hand-drawn line that wanders by a pixel still reads as continuous.
+  function runProjection(thick, size, horizontal, runLength, from, to) {
+    var projection = new Int32Array(size);
+    var half = runLength >> 1;
+    var x, y, d, ok, nx, ny;
+    var xFrom = horizontal ? from : 0, xTo = horizontal ? to : size;
+    var yFrom = horizontal ? 0 : from, yTo = horizontal ? size : to;
+    for (y = yFrom; y < yTo; y++) {
+      for (x = xFrom; x < xTo; x++) {
+        if (!thick[y * size + x]) { continue; }
+        ok = true;
+        for (d = -half; d <= half; d++) {
+          nx = horizontal ? x + d : x;
+          ny = horizontal ? y : y + d;
+          if (nx < 0 || ny < 0 || nx >= size || ny >= size || !thick[ny * size + nx]) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) { projection[horizontal ? y : x]++; }
+      }
+    }
+    return projection;
+  }
+
+  // Choose all ten lines at once instead of snapping each to its nominal ninth.
+  //
+  // Independent snapping cannot work on a hand-drawn grid: a line further from its
+  // nominal place than the search window simply is not found, and the fallback puts
+  // the cut in the wrong place without any sign that it did. Here the outer borders
+  // are pinned (the warp put them at the edges by construction) and the eight
+  // interior lines are chosen by dynamic programming to maximise total line
+  // evidence, subject to every cell being between minGapRatio and maxGapRatio of a
+  // nominal ninth. Uneven spacing is then something the grid is allowed to have
+  // rather than an error to be suppressed.
   function pickLines(projection, size, opts) {
     var nominal = size / 9;
-    var radius = Math.max(2, Math.round(nominal * opts.lineSearchFraction));
+    var last = size - 1;
+    var minGap = Math.max(2, Math.round(nominal * opts.minGapRatio));
+    var maxGap = Math.max(minGap + 1, Math.round(nominal * opts.maxGapRatio));
+    var NEG = -1e18;
+    var k, i, j, gap, value;
+
+    // dp[k][i]: best evidence with k interior lines placed, the k-th sitting at i
+    var dp = [], from = [];
+    for (k = 0; k <= 8; k++) {
+      dp.push(new Float64Array(size).fill(NEG));
+      from.push(new Int32Array(size).fill(-1));
+    }
+    for (i = minGap; i <= last - minGap; i++) {
+      gap = i;
+      if (gap >= minGap && gap <= maxGap) {
+        dp[0][i] = projection[i] - opts.spacingPenalty * Math.abs(gap - nominal);
+      }
+    }
+    for (k = 1; k <= 7; k++) {
+      for (i = minGap; i <= last - minGap; i++) {
+        for (j = Math.max(0, i - maxGap); j <= i - minGap; j++) {
+          if (dp[k - 1][j] === NEG) { continue; }
+          value = dp[k - 1][j] + projection[i] -
+                  opts.spacingPenalty * Math.abs(i - j - nominal);
+          if (value > dp[k][i]) { dp[k][i] = value; from[k][i] = j; }
+        }
+      }
+    }
+
+    var bestEnd = -1, bestValue = NEG;
+    for (j = Math.max(0, last - maxGap); j <= last - minGap; j++) {
+      if (dp[7][j] === NEG) { continue; }
+      value = dp[7][j] - opts.spacingPenalty * Math.abs(last - j - nominal);
+      if (value > bestValue) { bestValue = value; bestEnd = j; }
+    }
+
+    var out = new Array(10);
+    out[0] = 0;
+    out[9] = last;
+    if (bestEnd < 0) {
+      // no admissible arrangement at all - fall back to even ninths
+      for (k = 1; k <= 8; k++) { out[k] = k * nominal; }
+      out.snapped = 0;
+      return out;
+    }
+    for (k = 8, i = bestEnd; k >= 1; k--) {
+      out[k] = i;
+      i = from[k - 1][i];
+      if (i < 0 && k > 1) { break; }
+    }
+
+    // Sub-pixel: a thick box-boundary line is several pixels wide and its centre
+    // matters more than which single pixel scored highest.
     var floor = opts.minLineStrength * size;
-    var out = [], snapped = 0, k, expected, lo, hi, i, bestAt, bestVal;
-
+    var found = 0;
     for (k = 0; k <= 9; k++) {
-      expected = k * nominal;
-      lo = Math.max(0, Math.round(expected) - radius);
-      hi = Math.min(size - 1, Math.round(expected) + radius);
-      bestAt = -1; bestVal = -1;
-      for (i = lo; i <= hi; i++) {
-        if (projection[i] > bestVal) { bestVal = projection[i]; bestAt = i; }
-      }
-      if (bestVal < floor) { out.push(expected); continue; }  // no line here, trust nominal
-      out.push(peakCentre(projection, bestAt, bestVal, lo, hi));
-      snapped++;
-    }
-
-    // A line that lands on top of its neighbour is a misfire, not a discovery.
-    for (k = 1; k <= 9; k++) {
-      if (out[k] - out[k - 1] < nominal * opts.minLineSpacing) {
-        out[k] = Math.min(size, out[k - 1] + nominal);
+      var at = Math.round(out[k]);
+      if (projection[at] >= floor) { found++; }
+      if (k > 0 && k < 9) {
+        out[k] = peakCentre(projection, at, projection[at],
+                            Math.max(0, at - 3), Math.min(last, at + 3));
       }
     }
-    out.snapped = snapped;
+    out.snapped = found;
     return out;
   }
 
@@ -582,8 +709,8 @@ var SudokuVision = (function () {
   }
 
   function readCell(bin, size, lines, r, c, opts) {
-    var x0 = lines.cols[c], x1 = lines.cols[c + 1];
-    var y0 = lines.rows[r], y1 = lines.rows[r + 1];
+    var x0 = lines.cols.at(c), x1 = lines.cols.at(c + 1);
+    var y0 = lines.rows.at(r), y1 = lines.rows.at(r + 1);
     var insetX = (x1 - x0) * opts.cellInset, insetY = (y1 - y0) * opts.cellInset;
     var ax = Math.max(0, Math.round(x0 + insetX));
     var ay = Math.max(0, Math.round(y0 + insetY));
@@ -983,7 +1110,14 @@ var SudokuVision = (function () {
         t.cells = lap();
         if (opts.debug) {
           result.debug.cells = cells.cells;
-          result.debug.lines = cells.lines;
+          // flatten for the harness: the global position of each line, plus how far
+          // it bends from one side of the grid to the other
+          result.debug.lines = {
+            rows: Array.from(cells.lines.rows.positions),
+            cols: Array.from(cells.lines.cols.positions),
+            rowsSnapped: cells.lines.rows.snapped,
+            colsSnapped: cells.lines.cols.snapped
+          };
           result.debug.warpedBinary = binaryToCanvas(cells.binary.ink, warped.size, warped.size);
           result.debug.warpedInverted = cells.binary.inverted;
         }
@@ -1073,6 +1207,8 @@ var SudokuVision = (function () {
       warpToSquare: warpToSquare,
       extractCells: extractCells,
       findGridLines: findGridLines,
+      runProjection: runProjection,
+      pickLines: pickLines,
       normalizeDigit: normalizeDigit,
       classify: classify,
       logits: logits
