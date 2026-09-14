@@ -41,6 +41,14 @@ var SudokuVision = (function () {
     // photo reads 0-4. So candidates are also judged on whether the board they
     // produce could be a sudoku at all.
     maxCandidateConflicts: 10,
+    // A second, better-separated test of the same idea. When the warp is wrong the
+    // classifier is unsure about most of what it sees: measured, every readable
+    // fixture flags at most 0.24 cells per clue, while a known-bad detection flags
+    // 1.12. Conflicts alone left only one count of margin; this leaves a factor of
+    // two either side. minCandidateClues guards the degenerate case where a
+    // candidate reads almost nothing and so has nothing to be unsure about.
+    maxFlagRatio: 0.5,
+    minCandidateClues: 12,
 
     // 2.4 warp
     cellSize: 48,                 // warped grid is 9 * cellSize square
@@ -68,6 +76,13 @@ var SudokuVision = (function () {
     // the flagging of rejected-but-inked cells below.
     minFillRatio: 0.15,           // component pixels over bounding-box area
     lineThinness: 0.30,           // a spanning component is a line only if it is thin
+    // A digit is taller than it is wide. One that comes out wider than tall, and
+    // short, has usually been cut by a cell boundary that sits in the wrong place -
+    // a hand-drawn line that slopes, say. Measured: 11 of 743 cells look like this
+    // and 7 of them are read wrong, so it is worth one retry past the offending edge.
+    clippedAspect: 1.10,          // width over height, above which a digit looks cut
+    clippedHeight: 0.60,          // ...and below this share of the cell's height
+    clipExpand: 0.30,             // how far past the edge to look, in cell heights
     minDigitBox: 4,               // px, an absolute floor for very small cells
 
     // 2.6 normalization
@@ -943,6 +958,7 @@ var SudokuVision = (function () {
     var by = Math.min(size - 1, Math.round(y1 - insetY));
 
     var cell = { row: r, col: c, empty: true, bitmap28: null, pixels: 0, fill: 0,
+                 recovered: false,
                  inkFraction: 0, box: { x: ax, y: ay, w: bx - ax + 1, h: by - ay + 1 },
                  digitBox: null, reason: null };
     if (cell.box.w < 4 || cell.box.h < 4) { cell.reason = 'cell too small'; return cell; }
@@ -950,6 +966,28 @@ var SudokuVision = (function () {
     var kept = digitMask(bin, size, ax, ay, bx, by, opts);
     cell.pixels = kept.pixels;
     cell.inkFraction = kept.pixels / (cell.box.w * cell.box.h);
+
+    // Second look for a digit that appears to have been cut by the cell boundary.
+    // Only the edge it actually touches is opened up, and only if what comes back
+    // is substantially taller - so a cell that was read fine is never disturbed.
+    if (kept.bbox && looksClipped(kept.bbox, cell.box, opts)) {
+      var upward = kept.bbox.y <= 1;
+      var downward = kept.bbox.y + kept.bbox.h >= cell.box.h - 1;
+      var grow = Math.round(cell.box.h * opts.clipExpand);
+      var ay2 = upward ? Math.max(0, ay - grow) : ay;
+      var by2 = downward ? Math.min(size - 1, by + grow) : by;
+      if (ay2 !== ay || by2 !== by) {
+        var retry = digitMask(bin, size, ax, ay2, bx, by2, opts);
+        var height = by2 - ay2 + 1;
+        if (retry.bbox && retry.bbox.h > kept.bbox.h * 1.25 &&
+            retry.bbox.h < height * 0.95 && retry.pixels > kept.pixels) {
+          ay = ay2; by = by2;
+          cell.box = { x: ax, y: ay, w: bx - ax + 1, h: height };
+          cell.recovered = true;
+          kept = retry;
+        }
+      }
+    }
 
     if (!kept.pixels) { cell.reason = 'no component near the centre'; return cell; }
     if (cell.inkFraction < opts.minInkFraction) { cell.reason = 'too little ink'; return cell; }
@@ -989,15 +1027,19 @@ var SudokuVision = (function () {
   // KNOWN LIMIT: on a badly blurred photo the line spreads far enough to swallow the
   // digit outright, and no thickness test can separate them. Two cells in
   // real-03-newspaper-blurry. Both are flagged.
+  function looksClipped(bbox, box, opts) {
+    return bbox.w / bbox.h > opts.clippedAspect &&
+           bbox.h < opts.clippedHeight * box.h;
+  }
+
   function digitMask(bin, size, ax, ay, bx, by, opts) {
     var w = bx - ax + 1, h = by - ay + 1;
     var seen = new Uint8Array(w * h);
-    var mask = new Uint8Array(w * h);
     var margin = (1 - opts.centerBoxFraction) / 2;
     var cx0 = w * margin, cx1 = w * (1 - margin);
     var cy0 = h * margin, cy1 = h * (1 - margin);
     var stack = new Int32Array(w * h);
-    var kept = 0, bbox = null, x, y, i;
+    var parts = [], x, y, i;
 
     for (y = 0; y < h; y++) {
       for (x = 0; x < w; x++) {
@@ -1025,29 +1067,54 @@ var SudokuVision = (function () {
           }
         }
 
-        // A grid-line remnant runs edge to edge - but so does a digit that happens
-        // to touch one, and discarding that merged component throws the digit away
-        // too. What separates them is thickness across the span: a line is a few
-        // pixels deep, a digit stuck to a line is as deep as a digit.
-        var spansX = minX === 0 && maxX === w - 1;
-        var spansY = minY === 0 && maxY === h - 1;
-        var thinDown = (maxY - minY + 1) < opts.lineThinness * h;
-        var thinAcross = (maxX - minX + 1) < opts.lineThinness * w;
-        if ((spansX && thinDown) || (spansY && thinAcross)) { continue; }
-        // Must reach into the middle of the cell, or it is a neighbour bleeding in.
-        if (maxX < cx0 || minX > cx1 || maxY < cy0 || minY > cy1) { continue; }
-
-        for (var k = 0; k < pixels.length; k++) { mask[pixels[k]] = 1; }
-        kept += pixels.length;
-        bbox = bbox
-          ? { x: Math.min(bbox.x, minX), y: Math.min(bbox.y, minY),
-              w: Math.max(bbox.x + bbox.w, maxX + 1) - Math.min(bbox.x, minX),
-              h: Math.max(bbox.y + bbox.h, maxY + 1) - Math.min(bbox.y, minY) }
-          : { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+        parts.push({
+          pixels: pixels, minX: minX, maxX: maxX, minY: minY, maxY: maxY,
+          spansX: minX === 0 && maxX === w - 1,
+          spansY: minY === 0 && maxY === h - 1,
+          // Must reach the middle of the cell, or it is a neighbour bleeding in.
+          central: !(maxX < cx0 || minX > cx1 || maxY < cy0 || minY > cy1)
+        });
       }
     }
-    return { mask: mask, pixels: kept, bbox: bbox,
-             fill: bbox ? kept / (bbox.w * bbox.h) : 0 };
+
+    // Two readings of the same cell, strict first.
+    //
+    // Strict throws away anything that runs edge to edge, which is right when the
+    // component really is a grid line. Lenient keeps one that is too thick to be a
+    // line, which is right when a digit has merged with the line and would
+    // otherwise be discarded along with it.
+    //
+    // Preferring strict and falling back only when it finds nothing gets both: a
+    // cell that still holds a clean digit after discarding the line uses that
+    // digit, and a cell left empty by discarding recovers the merged one. Applying
+    // the lenient rule unconditionally pulled a line fragment into a cell that had
+    // a perfectly good digit in it, and turned a 2 into a 9.
+    var strict = assemble(false);
+    return strict.pixels ? strict : assemble(true);
+
+    function assemble(keepThickSpanning) {
+      var mask = new Uint8Array(w * h);
+      var kept = 0, bbox = null, k, part, thinDown, thinAcross;
+      for (k = 0; k < parts.length; k++) {
+        part = parts[k];
+        if (!part.central) { continue; }
+        thinDown = (part.maxY - part.minY + 1) < opts.lineThinness * h;
+        thinAcross = (part.maxX - part.minX + 1) < opts.lineThinness * w;
+        if (part.spansX && (thinDown || !keepThickSpanning)) { continue; }
+        if (part.spansY && (thinAcross || !keepThickSpanning)) { continue; }
+
+        for (var j = 0; j < part.pixels.length; j++) { mask[part.pixels[j]] = 1; }
+        kept += part.pixels.length;
+        bbox = bbox
+          ? { x: Math.min(bbox.x, part.minX), y: Math.min(bbox.y, part.minY),
+              w: Math.max(bbox.x + bbox.w, part.maxX + 1) - Math.min(bbox.x, part.minX),
+              h: Math.max(bbox.y + bbox.h, part.maxY + 1) - Math.min(bbox.y, part.minY) }
+          : { x: part.minX, y: part.minY,
+              w: part.maxX - part.minX + 1, h: part.maxY - part.minY + 1 };
+      }
+      return { mask: mask, pixels: kept, bbox: bbox,
+               fill: bbox ? kept / (bbox.w * bbox.h) : 0 };
+    }
   }
 
   // 2.6 MNIST's own recipe: fit the digit's longer side to 20px, then centre it in
@@ -1382,7 +1449,13 @@ var SudokuVision = (function () {
 
           board = readBoard(prepared, opts);
           conflicts = countConflicts(board.grid);
-          if (conflicts > opts.maxCandidateConflicts) {
+          var clues = 0;
+          board.grid.forEach(function (row) {
+            row.forEach(function (v) { if (v) { clues++; } });
+          });
+          var flagRatio = board.uncertain.length / Math.max(1, clues);
+          if (clues < opts.minCandidateClues || flagRatio > opts.maxFlagRatio ||
+              conflicts > opts.maxCandidateConflicts) {
             if (best.conflicts === undefined || conflicts < best.conflicts) {
               best = { candidate: candidate, prepared: prepared, conflicts: conflicts };
             }
@@ -1399,8 +1472,7 @@ var SudokuVision = (function () {
             ? (best.prepared.evidence < opts.minLineEvidence
                 ? " - the strongest candidate only had " + best.prepared.evidence +
                   " of 20 grid lines"
-                : " - a grid was found but the digits in it break sudoku's rules, so it " +
-                  "is not the puzzle")
+                : " - a grid was found, but what is in it does not read as a sudoku")
             : "";
           result.reason = "Couldn't find a sudoku grid in that image" + how +
             ". Try a flatter, better-lit shot with the whole grid in frame.";
