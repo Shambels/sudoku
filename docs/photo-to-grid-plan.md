@@ -577,6 +577,47 @@ search centre and size only at that angle - but it is speculative and is now unn
 for correctness, because the photo is refused rather than misread and the corners can be
 set by hand.
 
+## A regression on real-01, and what it exposed
+
+Reported as "a photo that used to read perfectly now reads two cells wrong". Two different
+causes, only one of them recent.
+
+1. **r6c7 (2 read as 9) was mine, from the real-05 fix.** The `lineThinness` rule kept a
+   merged digit-and-line component even in cells that still contained a perfectly good
+   digit component, and the extra ink changed the answer. The rule was too blunt: it
+   applied always, rather than only when needed.
+
+   The fix is to read every cell twice. **Strict** discards anything spanning the cell edge
+   to edge - correct when the component really is a grid line. **Lenient** keeps one too
+   thick to be a line - correct when a digit has merged with the line. Preferring strict and
+   falling back to lenient only when strict finds nothing gets both behaviours, and is the
+   same "conservative first, fall back on empty" shape that the candidate search uses.
+
+2. **r1c9 (8 read as 7) was older and more interesting.** The 8 sits under a hand-drawn row
+   line that slopes, so the cell boundary cut through it: the digit box came out 21x14,
+   wider than tall, and the classifier was guessing on half a glyph at 0.28 confidence. It
+   had flipped between blank, 7, 9 and 8 across encodings and code versions - a coin toss,
+   correctly flagged every time.
+
+   Measuring that signature across the fixtures made the fix obvious: **11 of 743 cells
+   have a digit box wider than tall, and 7 of them were read wrong.** So when a digit looks
+   cut, look past the edge that cut it - open up only the boundary the component actually
+   touches, re-segment, and keep the result only if it comes back substantially taller.
+
+   **That is the fix for the border-merge problem that three earlier attempts failed at.**
+   Those all tried to remove the line; the right framing was that the digit is clipped. It
+   rescues 3 cells across the set: real-01 now reads perfectly and real-03 went 3 wrong to 2.
+
+3. **Fixing those re-opened the validity gate**, because the boards the bad detection
+   produced now had few enough conflicts to pass. Conflicts had only one count of margin
+   anyway (good fixtures reach 6, a bad detection 8). A better-separated signal was already
+   being computed: **flags per clue**. Every readable fixture flags at most 0.24 cells per
+   clue; the bad detection flags 1.12. A bar at 0.5 has a factor of two either side. Both
+   tests are kept - they catch different failures.
+
+Net across the fixture set: 12 wrong cells to **9**, exact grids 18/25 to **19/25**, still
+zero false ink, still every wrong cell flagged, 136 ms per photo.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
