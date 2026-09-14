@@ -257,6 +257,52 @@ Three things the fixtures taught us that the plan did not anticipate:
    wider than the glyph was tall. Worth remembering that when the ruler is also code,
    a bad measurement is as likely as a bad result.
 
+## Findings from step 4
+
+1. **No PyTorch.** The net is 27k parameters; numpy with im2col trains it in ~12 minutes
+   on a CPU. That keeps `tools/train_digits.py` runnable without a multi-gigabyte install,
+   in the same spirit as the runtime. If the architecture outgrows this, switch frameworks
+   rather than scaling the numpy up.
+
+2. **Two parity checks guard the seams.** `tools/digit_pipeline.py` runs the Python
+   normalisation against the real vision.js through node (difference: exactly 0), and the
+   export is checked by decoding `digit-model.js` back in node and comparing to what
+   Python quantised (4.9e-7, pure float32 rounding). Both seams would otherwise fail
+   silently and look like a bad model.
+
+3. **`--gradcheck` earned its place immediately.** It failed at 1.6e-1 on the first run and
+   caught a maxpool whose argmax was computed on a reshape with the wrong axis order, so
+   the backward pass scattered gradients to the wrong inputs. It also taught a second
+   lesson: the check has to run in float64, because at float32 the loss carries ~1e-7
+   relative noise that swamps a central difference and reports failures that are only the
+   precision floor.
+
+4. **Look at the training data before believing any accuracy number.** Two bugs were
+   invisible in the loss curve and obvious in a labelled contact sheet: `np.roll` wrapped a
+   digit around the frame instead of slicing it, so whole digits were labelled
+   "background"; and unrestricted erosion ate thin strokes down to a few pixels that
+   normalisation then blew up into solid white squares still labelled as digits. Held-out
+   accuracy went 82 % -> 92 % from fixing those two alone. `--dump-samples` now exists so
+   this is a habit rather than a rescue.
+
+5. **A plausibility guard beats tuning augmentation ranges.** Rather than hand-tuning how
+   hard each transform may push, the builder rejects any augmented sample whose mean ink
+   falls outside the range real pipeline output occupies, and retries with a milder
+   transform. The threshold is expressed in the same quantity measured off real bitmaps,
+   so it stays meaningful if the augmentation changes.
+
+6. **The synthetic held-out score is far more pessimistic than reality**: 93 % against
+   98 % on real pipeline bitmaps. It is heavily augmented, includes unseen fonts and a
+   deliberately hard background class. Worth keeping as a regression signal, not worth
+   reading as the accuracy of anything.
+
+7. **Background samples compete with the digit 1.** Vertical junk fragments and a thin 1
+   are genuinely similar, and over-representing background (9000 samples against ~1800 per
+   digit) made `1 -> background` the single largest error. Cutting background to 4000 took
+   real-bitmap accuracy from 97.5 % to 98.0 % and halved the blurred fixture's errors.
+   `1 -> background` is still the joint-largest confusion, which step 5's confidence
+   flagging and step 6's solver repair are exactly the mechanisms for.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
@@ -280,7 +326,9 @@ Three things the fixtures taught us that the plan did not anticipate:
 - [x] **Step 3** — cell cutting, empty detection, MNIST normalisation. Occupancy
       **100.0 %** (0 false positives, 0 missed clues over 1701 cells, 21/21 fixtures
       perfect). Grid lines are found by projection, not assumed.
-- [ ] Step 4 — train + export the model
+- [x] **Step 4** — trained and exported. **98.0 %** per-cell accuracy on bitmaps cut from
+      the fixture photos (int8, what ships), 15/21 grids read with zero wrong cells.
+      Quantisation costs 0.16 points. `digit-model.js` is 37 KB, 26,698 parameters.
 - [ ] Step 5 — JS inference + confidence
 - [ ] Step 6 — UI integration, conflicts, solver repair
 - [ ] Step 7 — threshold tuning

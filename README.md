@@ -27,6 +27,11 @@ Built so far:
 | `tools/make_synthetic_fixtures.py` | regenerates the 21 synthetic fixtures |
 | `tools/label-fixture.html` | turns a real photo into a manifest entry |
 | `tools/fixtures/` | the images, their ground truth, and [notes on their limits](tools/fixtures/README.md) |
+| `digit-model.js` | the shipped classifier: int8 weights, ~27k parameters |
+| `tools/digit_pipeline.py` | the Python mirror of the runtime's digit normalisation |
+| `tools/train_digits.py` | trains the classifier (numpy only, no PyTorch) |
+| `tools/export_weights.py` | quantises to int8 and writes `digit-model.js` |
+| `tools/eval_on_fixtures.py` | scores a model on bitmaps cut from the fixture photos |
 
 To run the harness, serve the folder rather than opening the file directly — Chrome
 taints canvases for `file://` images, which stops the page reading fixture pixels:
@@ -37,3 +42,23 @@ python3 -m http.server
 ```
 
 (Opening it as a file still works; the page will offer a folder picker instead.)
+
+### Retraining the classifier
+
+Needs numpy and Pillow; no PyTorch, and nothing downloads at page load — the weights
+are baked into `digit-model.js`.
+
+```
+python3 tools/digit_pipeline.py            # prove the Python normalisation matches vision.js
+python3 tools/train_digits.py --gradcheck  # prove the hand-written backprop is correct
+python3 tools/train_digits.py --cache-dir .cache --hand-fonts .cache/fonts \
+        --dump-samples samples.png         # look at samples.png before trusting any number
+python3 tools/export_weights.py            # -> digit-model.js
+```
+
+Then open `test-vision.html`, press **Download bitmaps JSON**, and score the model on
+cells cut from the real photos rather than on synthetic glyphs:
+
+```
+python3 tools/eval_on_fixtures.py --bitmaps ~/Downloads/fixture-bitmaps.json
+```
