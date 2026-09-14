@@ -76,3 +76,73 @@ cells cut from the real photos rather than on synthetic glyphs:
 ```
 python3 tools/eval_on_fixtures.py --bitmaps ~/Downloads/fixture-bitmaps.json
 ```
+
+## Deploying the demo
+
+The web app is live at [pinchs.be/sudoku](https://pinchs.be/sudoku/). It is served
+as five static files by the same nginx that serves the portfolio site, out of a
+directory of its own, so a deploy of either one cannot touch the other.
+
+**A push to `main` deploys it.** `./deploy.sh` does the same thing from here,
+which is what to run when the change should be up before the runner gets to it.
+
+Either way what ships is `index.html`, `style.css`, `sudoku.js`, `vision.js` and
+`digit-model.js` — nothing else in this repository is part of the demo. The
+script stages those five, rsyncs them to `/var/www/demos/sudoku/`, and then
+curls four URLs to check the routing.
+`DEPLOY_HOST`, `DEPLOY_DIR` and `DEPLOY_URL` override the defaults. There is no
+build step and no cache to bust: the filenames never change and nginx serves the
+directory `no-cache`, so a deploy is visible on the next reload.
+
+### First time
+
+The `location /sudoku/` block that serves this lives in the portfolio repository
+(`deploy/nginx.conf` there), because that is where the rest of the server block
+is. It needs to be installed once, and so does the directory:
+
+```
+ssh deploy@pinchs.be 'sudo mkdir -p /var/www/demos/sudoku && sudo chown -R "$USER:$USER" /var/www/demos'
+./deploy.sh
+```
+
+`/var/www/demos` is owned by the deploy user for the same reason the site's web
+root is: deploying is then a plain `rsync` with no sudo.
+
+### Continuous deployment
+
+`.github/workflows/deploy.yml` runs `deploy.sh` on a runner on every push to
+`main`. It is a key and two secrets.
+
+**1. A key that exists only for this**, so it can be revoked without touching
+the one you log in with:
+
+```
+ssh-keygen -t ed25519 -f ~/.ssh/sudoku-deploy -C 'github actions -> pinchs.be' -N ''
+```
+
+**2. Authorise it on the server, restricted.** `restrict` turns off port and
+agent forwarding, X11 and pty allocation; rsync wants none of them:
+
+```
+printf 'restrict %s' "$(cat ~/.ssh/sudoku-deploy.pub)" | ssh deploy@pinchs.be 'cat >> ~/.ssh/authorized_keys'
+```
+
+If the server's rsync ships `rrsync`, `command="rrsync -wo /var/www/demos/sudoku",restrict`
+in front of the key instead confines it to writing that one directory and
+nothing else on the box — worth the two minutes, and the only change here is
+`DEPLOY_DIR: .` in the workflow's environment, since rrsync makes the path
+relative to the directory it confines the key to.
+
+**3. Two repository secrets**, under Settings → Secrets and variables → Actions:
+
+| | |
+|---|---|
+| `DEPLOY_KEY` | all of `~/.ssh/sudoku-deploy`, `BEGIN`/`END` lines included |
+| `SSH_KNOWN_HOSTS` | the server's host key: `ssh-keyscan pinchs.be` |
+
+`ssh-keyscan` on its own is trust-on-first-use, which is the thing the pinning
+is there to avoid — so check its output against the entry your laptop already
+has from logging in, with `ssh-keygen -F pinchs.be`, before pasting it.
+
+The workflow ends in the same four probes `deploy.sh` runs from a laptop, so a
+red run means the site is wrong rather than that CI is.
