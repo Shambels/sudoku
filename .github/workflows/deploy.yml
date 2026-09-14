@@ -1,0 +1,54 @@
+# Pushes the browser demo to https://pinchs.be/sudoku/ on every push to main.
+#
+# This job is a wrapper and nothing else: it puts a key on disk and runs
+# `./deploy.sh`, the same script that runs from a laptop. Nothing about *what*
+# gets deployed lives here — that is `FILES` in the script, and a `paths:`
+# filter would be a second copy of that list, silently wrong the first time the
+# demo grows a file. So this runs on every push to main instead: rsync sends
+# only what changed, and a push that touches nothing the demo serves costs the
+# four curls of the smoke test.
+#
+# See "Deploying the demo" in README.md for the key and the two secrets.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Queue deploys, never cancel one: a cancelled rsync leaves the server holding
+# half a deploy, and these take seconds anyway.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The host key is pinned from a secret rather than accepted on sight.
+      # `StrictHostKeyChecking=no` would hand this key to whatever answers on
+      # port 22, which is the one thing a key with write access to the web root
+      # must never do.
+      - name: Load the deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_KEY" || { echo "DEPLOY_KEY secret is empty"; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "SSH_KNOWN_HOSTS secret is empty"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      # Ends in the same four probes a laptop deploy runs, so a red run here
+      # means the site is wrong, not that CI is.
+      - name: Deploy
+        run: ./deploy.sh
