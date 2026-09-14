@@ -4,195 +4,279 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#050705">
   <link rel="stylesheet" href="style.css">
   <title>Sudoku</title>
 </head>
 
 <body>
-  <section id="import">
-    <button id="photoBtn" type="button">Read from a photo</button>
-    <input type="file" id="photo" accept="image/*" capture="environment" hidden>
-    <button id="copyBoard" type="button">Copy board</button>
-    <span id="importStatus">Pick a photo, drop one anywhere, or paste one.</span>
-  </section>
-
-  <section id="previewWrap">
-    <canvas id="preview" hidden title="the grid as the reader rectified it"></canvas>
-  </section>
-
-  <section id="container">
-    <div id="problem">
-      <input maxlength="1" min="1" max="9" class="case c1">
-      <input maxlength="1" min="1" max="9" class="case c2">
-      <input maxlength="1" min="1" max="9" class="case c3 x3">
-      <input maxlength="1" min="1" max="9" class="case c4">
-      <input maxlength="1" min="1" max="9" class="case c5">
-      <input maxlength="1" min="1" max="9" class="case c6 x3">
-      <input maxlength="1" min="1" max="9" class="case c7">
-      <input maxlength="1" min="1" max="9" class="case c8">
-      <input maxlength="1" min="1" max="9" class="case c9">
-      <input maxlength="1" min="1" max="9" class="case c10">
-      <input maxlength="1" min="1" max="9" class="case c11">
-      <input maxlength="1" min="1" max="9" class="case c12 x3">
-      <input maxlength="1" min="1" max="9" class="case c13">
-      <input maxlength="1" min="1" max="9" class="case c14">
-      <input maxlength="1" min="1" max="9" class="case c15 x3">
-      <input maxlength="1" min="1" max="9" class="case c16">
-      <input maxlength="1" min="1" max="9" class="case c17">
-      <input maxlength="1" min="1" max="9" class="case c18">
-      <input maxlength="1" min="1" max="9" class="case c19 y3">
-      <input maxlength="1" min="1" max="9" class="case c20 y3">
-      <input maxlength="1" min="1" max="9" class="case c21 y3 x3">
-      <input maxlength="1" min="1" max="9" class="case c22 y3">
-      <input maxlength="1" min="1" max="9" class="case c23 y3">
-      <input maxlength="1" min="1" max="9" class="case c24 y3 x3">
-      <input maxlength="1" min="1" max="9" class="case c25 y3">
-      <input maxlength="1" min="1" max="9" class="case c26 y3">
-      <input maxlength="1" min="1" max="9" class="case c27 y3">
-      <input maxlength="1" min="1" max="9" class="case c28">
-      <input maxlength="1" min="1" max="9" class="case c29">
-      <input maxlength="1" min="1" max="9" class="case c30 x3">
-      <input maxlength="1" min="1" max="9" class="case c31">
-      <input maxlength="1" min="1" max="9" class="case c32">
-      <input maxlength="1" min="1" max="9" class="case c33 x3">
-      <input maxlength="1" min="1" max="9" class="case c34">
-      <input maxlength="1" min="1" max="9" class="case c35">
-      <input maxlength="1" min="1" max="9" class="case c36">
-      <input maxlength="1" min="1" max="9" class="case c37">
-      <input maxlength="1" min="1" max="9" class="case c38">
-      <input maxlength="1" min="1" max="9" class="case c39 x3">
-      <input maxlength="1" min="1" max="9" class="case c40">
-      <input maxlength="1" min="1" max="9" class="case c41">
-      <input maxlength="1" min="1" max="9" class="case c42 x3">
-      <input maxlength="1" min="1" max="9" class="case c43">
-      <input maxlength="1" min="1" max="9" class="case c44">
-      <input maxlength="1" min="1" max="9" class="case c45">
-      <input maxlength="1" min="1" max="9" class="case c46 y3">
-      <input maxlength="1" min="1" max="9" class="case c47 y3">
-      <input maxlength="1" min="1" max="9" class="case c48 y3 x3">
-      <input maxlength="1" min="1" max="9" class="case c49 y3">
-      <input maxlength="1" min="1" max="9" class="case c50 y3">
-      <input maxlength="1" min="1" max="9" class="case c51 y3 x3">
-      <input maxlength="1" min="1" max="9" class="case c52 y3">
-      <input maxlength="1" min="1" max="9" class="case c53 y3">
-      <input maxlength="1" min="1" max="9" class="case c54 y3">
-      <input maxlength="1" min="1" max="9" class="case c55">
-      <input maxlength="1" min="1" max="9" class="case c56">
-      <input maxlength="1" min="1" max="9" class="case c57 x3">
-      <input maxlength="1" min="1" max="9" class="case c58">
-      <input maxlength="1" min="1" max="9" class="case c59">
-      <input maxlength="1" min="1" max="9" class="case c60 x3">
-      <input maxlength="1" min="1" max="9" class="case c61">
-      <input maxlength="1" min="1" max="9" class="case c62">
-      <input maxlength="1" min="1" max="9" class="case c63">
-      <input maxlength="1" min="1" max="9" class="case c64">
-      <input maxlength="1" min="1" max="9" class="case c65">
-      <input maxlength="1" min="1" max="9" class="case c66 x3">
-      <input maxlength="1" min="1" max="9" class="case c67">
-      <input maxlength="1" min="1" max="9" class="case c68">
-      <input maxlength="1" min="1" max="9" class="case c69 x3">
-      <input maxlength="1" min="1" max="9" class="case c70">
-      <input maxlength="1" min="1" max="9" class="case c71">
-      <input maxlength="1" min="1" max="9" class="case c72">
-      <input maxlength="1" min="1" max="9" class="case c73">
-      <input maxlength="1" min="1" max="9" class="case c74">
-      <input maxlength="1" min="1" max="9" class="case c75 x3">
-      <input maxlength="1" min="1" max="9" class="case c76">
-      <input maxlength="1" min="1" max="9" class="case c77">
-      <input maxlength="1" min="1" max="9" class="case c78 x3">
-      <input maxlength="1" min="1" max="9" class="case c79">
-      <input maxlength="1" min="1" max="9" class="case c80">
-      <input maxlength="1" min="1" max="9" class="case c81">
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+          <path d="M9 3v18M15 3v18M3 9h18M3 15h18"></path>
+        </svg>
+      </span>
+      <h1>Sudoku</h1>
     </div>
-    <button id="solveBtn">=></button>
-    <div id="solution">
-      <div class="case case1"></div>
-      <div class="case case2"></div>
-      <div class="case case3 x3"></div>
-      <div class="case case4"></div>
-      <div class="case case5"></div>
-      <div class="case case6 x3"></div>
-      <div class="case case7"></div>
-      <div class="case case8"></div>
-      <div class="case case9"></div>
-      <div class="case case10"></div>
-      <div class="case case11"></div>
-      <div class="case case12 x3"></div>
-      <div class="case case13"></div>
-      <div class="case case14"></div>
-      <div class="case case15 x3"></div>
-      <div class="case case16"></div>
-      <div class="case case17"></div>
-      <div class="case case18"></div>
-      <div class="case case19 y3"></div>
-      <div class="case case20 y3"></div>
-      <div class="case case21 y3 x3"></div>
-      <div class="case case22 y3"></div>
-      <div class="case case23 y3"></div>
-      <div class="case case24 y3 x3"></div>
-      <div class="case case25 y3"></div>
-      <div class="case case26 y3"></div>
-      <div class="case case27 y3"></div>
-      <div class="case case28"></div>
-      <div class="case case29"></div>
-      <div class="case case30 x3"></div>
-      <div class="case case31"></div>
-      <div class="case case32"></div>
-      <div class="case case33 x3"></div>
-      <div class="case case34"></div>
-      <div class="case case35"></div>
-      <div class="case case36"></div>
-      <div class="case case37"></div>
-      <div class="case case38"></div>
-      <div class="case case39 x3"></div>
-      <div class="case case40"></div>
-      <div class="case case41"></div>
-      <div class="case case42 x3"></div>
-      <div class="case case43"></div>
-      <div class="case case44"></div>
-      <div class="case case45"></div>
-      <div class="case case46 y3"></div>
-      <div class="case case47 y3"></div>
-      <div class="case case48 y3 x3"></div>
-      <div class="case case49 y3"></div>
-      <div class="case case50 y3"></div>
-      <div class="case case51 y3 x3"></div>
-      <div class="case case52 y3"></div>
-      <div class="case case53 y3"></div>
-      <div class="case case54 y3"></div>
-      <div class="case case55"></div>
-      <div class="case case56"></div>
-      <div class="case case57 x3"></div>
-      <div class="case case58"></div>
-      <div class="case case59"></div>
-      <div class="case case60 x3"></div>
-      <div class="case case61"></div>
-      <div class="case case62"></div>
-      <div class="case case63"></div>
-      <div class="case case64"></div>
-      <div class="case case65"></div>
-      <div class="case case66 x3"></div>
-      <div class="case case67"></div>
-      <div class="case case68"></div>
-      <div class="case case69 x3"></div>
-      <div class="case case70"></div>
-      <div class="case case71"></div>
-      <div class="case case72"></div>
-      <div class="case case73"></div>
-      <div class="case case74"></div>
-      <div class="case case75 x3"></div>
-      <div class="case case76"></div>
-      <div class="case case77"></div>
-      <div class="case case78 x3"></div>
-      <div class="case case79"></div>
-      <div class="case case80"></div>
-      <div class="case case81"></div>
-    </div>
-  </section>
-  <section>
-    <h1 id="alert"></h1>
-  </section>
+    <p class="tagline">Type the clues, or drop a photo of the puzzle.</p>
+  </header>
+
+  <main>
+    <section id="import" class="toolbar" aria-label="Import">
+      <div class="actions">
+        <button id="photoBtn" type="button" class="btn">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M4 7h3l2-3h6l2 3h3v12H4z"></path>
+            <circle cx="12" cy="13" r="3.5"></circle>
+          </svg>
+          Read from a photo
+        </button>
+        <input type="file" id="photo" accept="image/*" capture="environment" hidden>
+        <button id="cornersBtn" type="button" class="btn" hidden>Set corners by hand</button>
+        <button id="clearBtn" type="button" class="btn btn-quiet">Clear</button>
+      </div>
+      <p id="importStatus" class="status" role="status">Pick a photo, drop one anywhere on the page, or paste one.</p>
+    </section>
+
+    <details id="previewWrap" class="card preview" hidden open>
+      <summary class="preview-head">
+        <span class="panel-title">Photo</span>
+        <span id="previewHint" class="preview-hint"></span>
+        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M6 9l6 6 6-6"></path>
+        </svg>
+      </summary>
+      <div class="preview-body">
+        <figure id="pickerFigure" hidden>
+          <canvas id="picker" title="click the four corners of the grid"></canvas>
+          <figcaption>Your photo — click the corners in order</figcaption>
+        </figure>
+        <figure id="previewFigure" hidden>
+          <canvas id="preview" title="the grid as the reader rectified it"></canvas>
+          <figcaption>What the reader saw</figcaption>
+        </figure>
+      </div>
+    </details>
+
+    <section id="container" class="boards">
+      <div class="board-panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Puzzle</h2>
+          <button id="copyPuzzle" type="button" class="btn btn-icon" title="Copy the clues as an 81-character string" aria-label="Copy the clues">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="icon-copy">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a1 1 0 0 1 1-1h10"></path>
+            </svg>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true" class="icon-check">
+              <path d="M5 12l5 5L20 7"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="board-frame" id="problemFrame">
+          <div id="problem" class="board" role="grid" aria-label="Puzzle clues">
+            <input class="case c1" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 1">
+            <input class="case c2" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 2">
+            <input class="case c3 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 3">
+            <input class="case c4" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 4">
+            <input class="case c5" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 5">
+            <input class="case c6 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 6">
+            <input class="case c7" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 7">
+            <input class="case c8" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 8">
+            <input class="case c9" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 1, column 9">
+            <input class="case c10" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 1">
+            <input class="case c11" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 2">
+            <input class="case c12 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 3">
+            <input class="case c13" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 4">
+            <input class="case c14" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 5">
+            <input class="case c15 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 6">
+            <input class="case c16" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 7">
+            <input class="case c17" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 8">
+            <input class="case c18" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 2, column 9">
+            <input class="case c19 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 1">
+            <input class="case c20 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 2">
+            <input class="case c21 x3 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 3">
+            <input class="case c22 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 4">
+            <input class="case c23 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 5">
+            <input class="case c24 x3 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 6">
+            <input class="case c25 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 7">
+            <input class="case c26 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 8">
+            <input class="case c27 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 3, column 9">
+            <input class="case c28" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 1">
+            <input class="case c29" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 2">
+            <input class="case c30 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 3">
+            <input class="case c31" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 4">
+            <input class="case c32" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 5">
+            <input class="case c33 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 6">
+            <input class="case c34" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 7">
+            <input class="case c35" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 8">
+            <input class="case c36" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 4, column 9">
+            <input class="case c37" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 1">
+            <input class="case c38" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 2">
+            <input class="case c39 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 3">
+            <input class="case c40" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 4">
+            <input class="case c41" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 5">
+            <input class="case c42 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 6">
+            <input class="case c43" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 7">
+            <input class="case c44" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 8">
+            <input class="case c45" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 5, column 9">
+            <input class="case c46 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 1">
+            <input class="case c47 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 2">
+            <input class="case c48 x3 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 3">
+            <input class="case c49 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 4">
+            <input class="case c50 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 5">
+            <input class="case c51 x3 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 6">
+            <input class="case c52 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 7">
+            <input class="case c53 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 8">
+            <input class="case c54 y3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 6, column 9">
+            <input class="case c55" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 1">
+            <input class="case c56" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 2">
+            <input class="case c57 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 3">
+            <input class="case c58" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 4">
+            <input class="case c59" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 5">
+            <input class="case c60 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 6">
+            <input class="case c61" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 7">
+            <input class="case c62" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 8">
+            <input class="case c63" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 7, column 9">
+            <input class="case c64" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 1">
+            <input class="case c65" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 2">
+            <input class="case c66 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 3">
+            <input class="case c67" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 4">
+            <input class="case c68" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 5">
+            <input class="case c69 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 6">
+            <input class="case c70" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 7">
+            <input class="case c71" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 8">
+            <input class="case c72" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 8, column 9">
+            <input class="case c73" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 1">
+            <input class="case c74" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 2">
+            <input class="case c75 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 3">
+            <input class="case c76" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 4">
+            <input class="case c77" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 5">
+            <input class="case c78 x3" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 6">
+            <input class="case c79" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 7">
+            <input class="case c80" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 8">
+            <input class="case c81" type="text" inputmode="numeric" pattern="[1-9]" maxlength="1" autocomplete="off" aria-label="Row 9, column 9">
+          </div>
+          <div class="drop-hint" aria-hidden="true"><span>Drop the photo here</span></div>
+        </div>
+        <button id="solveBtn" type="button" class="btn btn-primary">
+          <span class="btn-label">Solve</span>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="board-panel" id="solutionPanel" hidden>
+        <div class="panel-head">
+          <h2 class="panel-title">Solution</h2>
+          <button id="copySolution" type="button" class="btn btn-icon" title="Copy the solution as an 81-character string" aria-label="Copy the solution">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="icon-copy">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a1 1 0 0 1 1-1h10"></path>
+            </svg>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true" class="icon-check">
+              <path d="M5 12l5 5L20 7"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="board-frame">
+          <div id="solution" class="board solved" role="grid" aria-label="Solution">
+            <div class="case case1"></div>
+            <div class="case case2"></div>
+            <div class="case case3 x3"></div>
+            <div class="case case4"></div>
+            <div class="case case5"></div>
+            <div class="case case6 x3"></div>
+            <div class="case case7"></div>
+            <div class="case case8"></div>
+            <div class="case case9"></div>
+            <div class="case case10"></div>
+            <div class="case case11"></div>
+            <div class="case case12 x3"></div>
+            <div class="case case13"></div>
+            <div class="case case14"></div>
+            <div class="case case15 x3"></div>
+            <div class="case case16"></div>
+            <div class="case case17"></div>
+            <div class="case case18"></div>
+            <div class="case case19 y3"></div>
+            <div class="case case20 y3"></div>
+            <div class="case case21 x3 y3"></div>
+            <div class="case case22 y3"></div>
+            <div class="case case23 y3"></div>
+            <div class="case case24 x3 y3"></div>
+            <div class="case case25 y3"></div>
+            <div class="case case26 y3"></div>
+            <div class="case case27 y3"></div>
+            <div class="case case28"></div>
+            <div class="case case29"></div>
+            <div class="case case30 x3"></div>
+            <div class="case case31"></div>
+            <div class="case case32"></div>
+            <div class="case case33 x3"></div>
+            <div class="case case34"></div>
+            <div class="case case35"></div>
+            <div class="case case36"></div>
+            <div class="case case37"></div>
+            <div class="case case38"></div>
+            <div class="case case39 x3"></div>
+            <div class="case case40"></div>
+            <div class="case case41"></div>
+            <div class="case case42 x3"></div>
+            <div class="case case43"></div>
+            <div class="case case44"></div>
+            <div class="case case45"></div>
+            <div class="case case46 y3"></div>
+            <div class="case case47 y3"></div>
+            <div class="case case48 x3 y3"></div>
+            <div class="case case49 y3"></div>
+            <div class="case case50 y3"></div>
+            <div class="case case51 x3 y3"></div>
+            <div class="case case52 y3"></div>
+            <div class="case case53 y3"></div>
+            <div class="case case54 y3"></div>
+            <div class="case case55"></div>
+            <div class="case case56"></div>
+            <div class="case case57 x3"></div>
+            <div class="case case58"></div>
+            <div class="case case59"></div>
+            <div class="case case60 x3"></div>
+            <div class="case case61"></div>
+            <div class="case case62"></div>
+            <div class="case case63"></div>
+            <div class="case case64"></div>
+            <div class="case case65"></div>
+            <div class="case case66 x3"></div>
+            <div class="case case67"></div>
+            <div class="case case68"></div>
+            <div class="case case69 x3"></div>
+            <div class="case case70"></div>
+            <div class="case case71"></div>
+            <div class="case case72"></div>
+            <div class="case case73"></div>
+            <div class="case case74"></div>
+            <div class="case case75 x3"></div>
+            <div class="case case76"></div>
+            <div class="case case77"></div>
+            <div class="case case78 x3"></div>
+            <div class="case case79"></div>
+            <div class="case case80"></div>
+            <div class="case case81"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p id="alert" class="status alert" role="status" aria-live="polite"></p>
+  </main>
+
+  <footer class="foot">
+    Runs entirely in your browser — nothing is uploaded.
+  </footer>
+
   <script src="digit-model.js"></script>
   <script src="vision.js"></script>
   <script src="sudoku.js"></script>

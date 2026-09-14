@@ -10,14 +10,58 @@ var i;
 var clues = problemGrid ? Array.from(problemGrid.children) : [];
 var size = 9;
 
-function displaySolution(grid) {
+// The message line under the boards. `kind` picks the colour: ok, error, busy.
+function setAlert(text, kind) {
+  if (!alert_title) {
+    return;
+  }
+  alert_title.textContent = text || '';
+  if (kind) {
+    alert_title.dataset.kind = kind;
+  } else {
+    delete alert_title.dataset.kind;
+  }
+}
+
+// The solution panel exists only while it shows a solution to the clues that are
+// on the board right now. Any edit to the clues makes it stale, so it goes away.
+function showSolutionPanel() {
+  const panel = document.getElementById('solutionPanel');
+  if (!panel) {
+    return;
+  }
+  panel.hidden = false;
+  panel.classList.remove('reveal');
+  void panel.offsetWidth;   // restart the animation if it is already showing
+  panel.classList.add('reveal');
+  // On a phone the solution lands below the fold; bring it up without a jump.
+  if (panel.scrollIntoView) {
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function hideSolutionPanel() {
+  const panel = document.getElementById('solutionPanel');
+  if (!panel || panel.hidden) {
+    return;
+  }
+  panel.hidden = true;
+  panel.classList.remove('reveal');
+  setAlert('');
+}
+
+function displaySolution(grid, given) {
   let solutions = Array.from(solutionGrid.children);
   for (let x = 0; x < grid.length; x++) {
     for (let y = 0; y < grid[x].length; y++) {
-      solutions[y + (x * grid.length)].innerHTML = grid[x][y];
+      const cell = solutions[y + (x * grid.length)];
+      cell.textContent = grid[x][y];
+      // The clues stay plain; only the digits the solver found light up.
+      cell.classList.toggle('given', Boolean(given && given[x][y]));
     }
   }
-  alert_title.innerHTML = "Done"
+  showSolutionPanel();
+  setAlert('Solved.', 'ok');
 }
 
 function getPossibleEntries(grid, i, j) {
@@ -133,6 +177,7 @@ function readGrid(inputs) {
 
 function keyBindings() {
   event.preventDefault();
+  const before = selected.value;
   switch (event.which) {
     // LEFT
     case 37:
@@ -180,6 +225,9 @@ function keyBindings() {
   }
   // Setting .value in code fires no 'input' event, so clear here too.
   clearConflicts();
+  if (selected.value !== before) {
+    hideSolutionPanel();
+  }
 }
 
 function selectSpot(target) {
@@ -494,6 +542,39 @@ function fillGrid(grid) {
       clues[y + (x * size)].value = grid[x][y] ? String(grid[x][y]) : '';
     }
   }
+  hideSolutionPanel();
+}
+
+// The photo card holds two canvases that are rarely both in use. It shows only
+// while at least one of them has something to show, and never as an empty box.
+function setCanvasVisible(id, visible) {
+  const canvas = document.getElementById(id);
+  if (!canvas) {
+    return;
+  }
+  const figure = canvas.closest('figure');
+  if (figure) {
+    figure.hidden = !visible;
+  } else {
+    canvas.hidden = !visible;
+  }
+  const wrap = document.getElementById('previewWrap');
+  if (wrap) {
+    const figures = Array.from(wrap.querySelectorAll('figure'));
+    const wasHidden = wrap.hidden;
+    wrap.hidden = figures.every(f => f.hidden);
+    // A card that has just appeared, or that needs four clicks, must be open;
+    // otherwise whatever the person chose stays.
+    if (!wrap.hidden && (wasHidden || (id === 'picker' && visible))) {
+      wrap.open = true;
+    }
+    const hint = document.getElementById('previewHint');
+    if (hint) {
+      hint.textContent = id === 'picker' && visible
+        ? 'Set the corners'
+        : (wrap.hidden ? '' : 'The rectified grid');
+    }
+  }
 }
 
 function clearUncertain() {
@@ -522,20 +603,28 @@ function showPreview(canvas) {
   preview.width = canvas.width;
   preview.height = canvas.height;
   preview.getContext('2d').drawImage(canvas, 0, 0);
-  preview.hidden = false;
+  setCanvasVisible('preview', true);
 }
 
-function readPhoto(source) {
+function readPhoto(source, corners) {
   const status = document.getElementById('importStatus');
+  const cornersBtn = document.getElementById('cornersBtn');
   clearConflicts();
   clearUncertain();
+  hideSolutionPanel();
+  setAlert('');
   status.textContent = 'Reading the photo...';
 
-  SudokuVision.extract(source).then(result => {
+  SudokuVision.extract(source, corners ? { corners: corners } : {}).then(result => {
     if (!result.ok) {
-      status.textContent = result.reason;
+      // A refusal is honest but not the end of it: someone looking at the photo can
+      // see the grid even when the detector cannot, and four clicks are worth more
+      // than any amount of further guessing.
+      status.textContent = result.reason + ' Or press "Set corners by hand".';
+      cornersBtn.hidden = false;
       return;
     }
+    cornersBtn.hidden = false;
     showPreview(result.warped);
 
     const repair = repairBoard(result);
@@ -563,7 +652,7 @@ function readPhoto(source) {
     message += doubt.size
       ? '. Check the ' + doubt.size + ' highlighted ' + (doubt.size === 1 ? 'cell' : 'cells') + '.'
       : '. Nothing looks doubtful.';
-    status.textContent = message;
+    status.textContent = message + (corners ? ' (read from the corners you set.)' : '');
     lastReadBoard = boardString(grid);
   }).catch(err => {
     status.textContent = 'Could not read that image: ' + err.message;
@@ -571,50 +660,258 @@ function readPhoto(source) {
 }
 
 var lastReadBoard = null;
+var lastPhoto = null;      // the image itself, so corners can be set without reloading
+var pickedCorners = [];
+
+// Keep the decoded photo around so corners can be set, and re-set, without
+// asking for the file again. A data URL rather than an object URL: on a file://
+// page a blob URL has an opaque origin and reading the canvas then throws.
+function loadPhoto(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      lastPhoto = img;
+      pickedCorners = [];
+      setCanvasVisible('picker', false);
+      readPhoto(img);
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function startCornerPicking() {
+  if (!lastPhoto) {
+    return;
+  }
+  const canvas = document.getElementById('picker');
+  const status = document.getElementById('importStatus');
+  setCanvasVisible('preview', false);
+  pickedCorners = [];
+
+  const scale = Math.min(560 / lastPhoto.naturalWidth, 560 / lastPhoto.naturalHeight, 1);
+  canvas.width = Math.round(lastPhoto.naturalWidth * scale);
+  canvas.height = Math.round(lastPhoto.naturalHeight * scale);
+  setCanvasVisible('picker', true);
+  canvas.dataset.scale = scale;
+  drawPicker();
+  status.textContent = 'Click the four corners of the grid: top-left, top-right, ' +
+                       'bottom-right, bottom-left.';
+}
+
+function drawPicker() {
+  const canvas = document.getElementById('picker');
+  const ctx = canvas.getContext('2d');
+  const scale = parseFloat(canvas.dataset.scale);
+  ctx.drawImage(lastPhoto, 0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#1f9d55';
+  ctx.fillStyle = '#1f9d55';
+  ctx.lineWidth = 2;
+  ctx.font = '12px system-ui, sans-serif';
+  pickedCorners.forEach((point, i) => {
+    const x = point.x * scale, y = point.y * scale;
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillText(['TL', 'TR', 'BR', 'BL'][i], x + 8, y - 6);
+  });
+  if (pickedCorners.length === 4) {
+    ctx.beginPath();
+    pickedCorners.forEach((point, i) => {
+      const x = point.x * scale, y = point.y * scale;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.closePath();
+    ctx.stroke();
+  }
+}
+
+function setupCornerPicking() {
+  const canvas = document.getElementById('picker');
+  const status = document.getElementById('importStatus');
+  if (!canvas) {
+    return;
+  }
+  canvas.addEventListener('click', event => {
+    if (!lastPhoto || pickedCorners.length >= 4) {
+      return;
+    }
+    const box = canvas.getBoundingClientRect();
+    const scale = parseFloat(canvas.dataset.scale);
+    pickedCorners.push({
+      x: (event.clientX - box.left) * (canvas.width / box.width) / scale,
+      y: (event.clientY - box.top) * (canvas.height / box.height) / scale
+    });
+    drawPicker();
+    if (pickedCorners.length === 4) {
+      setCanvasVisible('picker', false);
+      readPhoto(lastPhoto, pickedCorners.slice());
+    } else {
+      status.textContent = 'Now click the ' +
+        ['top-left', 'top-right', 'bottom-right', 'bottom-left'][pickedCorners.length] +
+        ' corner.';
+    }
+  });
+}
 
 function setupPhotoImport() {
   const picker = document.getElementById('photo');
   const button = document.getElementById('photoBtn');
-  const copyBtn = document.getElementById('copyBoard');
+  const cornersBtn = document.getElementById('cornersBtn');
   const status = document.getElementById('importStatus');
-  if (!picker || !button || !copyBtn || typeof SudokuVision === 'undefined') {
+  if (!picker || !button || !cornersBtn || typeof SudokuVision === 'undefined') {
     return;
   }
 
   button.addEventListener('click', () => picker.click());
   picker.addEventListener('change', event => {
     if (event.target.files[0]) {
-      readPhoto(event.target.files[0]);
+      loadPhoto(event.target.files[0]);
     }
   });
 
   // Drag and drop anywhere on the page, and paste from the clipboard - a phone
   // screenshot is usually already in the clipboard.
-  ['dragover', 'drop'].forEach(name => {
-    document.addEventListener(name, event => {
-      event.preventDefault();
-      document.body.classList.toggle('dropping', name === 'dragover');
-      if (name === 'drop' && event.dataTransfer.files[0]) {
-        readPhoto(event.dataTransfer.files[0]);
-      }
-    });
+  //
+  // dragenter/dragleave fire for every element the pointer crosses, so a plain
+  // toggle flickers. Counting enters against leaves gives one steady highlight
+  // for as long as the file is over the page.
+  let dragDepth = 0;
+  const draggingFiles = event =>
+    event.dataTransfer && Array.from(event.dataTransfer.types).indexOf('Files') !== -1;
+
+  document.addEventListener('dragenter', event => {
+    if (!draggingFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    dragDepth++;
+    document.body.classList.add('dropping');
   });
-  document.addEventListener('dragleave', () => document.body.classList.remove('dropping'));
+  document.addEventListener('dragover', event => {
+    if (!draggingFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  document.addEventListener('dragleave', event => {
+    if (!draggingFiles(event)) {
+      return;
+    }
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) {
+      document.body.classList.remove('dropping');
+    }
+  });
+  document.addEventListener('drop', event => {
+    event.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove('dropping');
+    const file = event.dataTransfer && event.dataTransfer.files[0];
+    if (file && file.type.indexOf('image') === 0) {
+      loadPhoto(file);
+    } else if (file) {
+      status.textContent = 'That is not an image file.';
+    }
+  });
   document.addEventListener('paste', event => {
     const item = Array.from(event.clipboardData.items)
       .find(entry => entry.type.indexOf('image') === 0);
     if (item) {
-      readPhoto(item.getAsFile());
+      loadPhoto(item.getAsFile());
     }
   });
 
-  copyBtn.addEventListener('click', () => {
-    const board = lastReadBoard || boardString(readGrid(clues));
-    navigator.clipboard.writeText(board).then(() => {
-      status.textContent = 'Copied - paste it into sudoku.py: parseBoard("' +
-        board.slice(0, 12) + '...")';
+  cornersBtn.addEventListener('click', () => startCornerPicking());
+
+  const clearBtn = document.getElementById('clearBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => clearAll());
+  }
+
+  setupCopyButtons();
+}
+
+// The solution grid as the same 81-character string the clues use.
+function solutionString() {
+  return Array.from(solutionGrid.children)
+    .map(cell => cell.textContent.trim() || '.')
+    .join('');
+}
+
+// One copy button per grid: the clues as typed or read, the solution once found.
+// Feedback lives on the button itself - a tick and the word "Copied" for a
+// moment - so the status lines stay about the photo and the solver.
+function setupCopyButtons() {
+  const pairs = [
+    ['copyPuzzle', () => boardString(readGrid(clues))],
+    ['copySolution', solutionString]
+  ];
+  pairs.forEach(([id, read]) => {
+    const btn = document.getElementById(id);
+    if (!btn) {
+      return;
+    }
+    let timer = null;
+    btn.addEventListener('click', () => {
+      const text = read();
+      const done = () => {
+        btn.classList.add('copied');
+        clearTimeout(timer);
+        timer = setTimeout(() => btn.classList.remove('copied'), 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text) && done());
+      } else if (fallbackCopy(text)) {
+        done();
+      }
     });
   });
+}
+
+// file:// pages in some browsers have no async clipboard; a hidden textarea does.
+function fallbackCopy(text) {
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch (err) {
+    ok = false;
+  }
+  document.body.removeChild(area);
+  return ok;
+}
+
+// Back to a blank page: no clues, no solution, no photo, no messages.
+function clearAll() {
+  clues.forEach(spot => {
+    spot.value = '';
+    spot.classList.remove('selected', 'conflict', 'uncertain');
+  });
+  selected = undefined;
+  hideSolutionPanel();
+  setAlert('');
+  lastReadBoard = null;
+  lastPhoto = null;
+  pickedCorners = [];
+  setCanvasVisible('picker', false);
+  setCanvasVisible('preview', false);
+  const cornersBtn = document.getElementById('cornersBtn');
+  const status = document.getElementById('importStatus');
+  if (cornersBtn) {
+    cornersBtn.hidden = true;
+  }
+  if (status) {
+    status.textContent = 'Pick a photo, drop one anywhere on the page, or paste one.';
+  }
 }
 
 function setup() {
@@ -626,8 +923,12 @@ function setup() {
     element.addEventListener('click', () => {
       selectSpot(element);
     });
+    element.addEventListener('focus', () => {
+      selectSpot(element);
+    });
     element.addEventListener('input', () => {
       clearConflicts();
+      hideSolutionPanel();
     });
   }
 
@@ -635,6 +936,7 @@ function setup() {
 
 function start() {
   clearConflicts();
+  hideSolutionPanel();
   let grid = readGrid(clues);
 
   // Contradictory clues can never be solved, so report them instead of
@@ -642,25 +944,36 @@ function start() {
   let conflicts = findConflicts(grid);
   if (conflicts.size > 0) {
     highlightConflicts(conflicts);
-    alert_title.innerHTML = "Invalid Clues ! Check the highlighted cells.";
+    setAlert('Invalid clues. Check the highlighted cells.', 'error');
     return;
   }
 
   if (!hasEnoughClues(clues)) {
-    alert_title.innerHTML = "Not Enough Clues ! Minimum is 17.";
+    setAlert('Not enough clues. A sudoku needs at least 17.', 'error');
     return;
   }
 
-  alert_title.innerHTML = "Wait for It...";
-  if (solve(grid)) {
-    displaySolution(grid);
-  } else {
-    alert_title.innerHTML = "No Solution Found.";
-  }
+  // The search runs on the main thread. Yielding once lets the browser paint the
+  // "solving" state before a hard board locks it up for a moment.
+  setAlert('Solving...', 'busy');
+  solveBtn.disabled = true;
+  const given = grid.map(row => row.slice());
+  setTimeout(() => {
+    try {
+      if (solve(grid)) {
+        displaySolution(grid, given);
+      } else {
+        setAlert('No solution found.', 'error');
+      }
+    } finally {
+      solveBtn.disabled = false;
+    }
+  }, 30);
 }
 
 setup();
 setupPhotoImport();
+setupCornerPicking();
 if (solveBtn) {
   solveBtn.addEventListener('click', () => {
     start();

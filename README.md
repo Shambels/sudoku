@@ -15,8 +15,8 @@ can never be solved.
 ## Reading a puzzle from a photo
 
 Open `index.html`, then pick a photo, drop one on the page, or paste one. The grid fills
-in, cells the reader is unsure about turn amber, and **Copy board** gives you an
-81-character string you can paste into `sudoku.py`.
+in, cells the reader is unsure about turn amber, and the copy icon above either grid
+gives you an 81-character string you can paste into `sudoku.py`.
 
 If a photo cannot be read, the app says so rather than guessing, and offers **Set corners
 by hand**: click the four corners of the grid and it reads from those instead.
