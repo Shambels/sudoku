@@ -371,6 +371,66 @@ Three things the fixtures taught us that the plan did not anticipate:
    measures the repair that actually ships, rather than a copy that could quietly drift
    from it.
 
+## Findings from the first real photo
+
+A hand-drawn grid on creased paper, photographed with a phone. It read 24 of 30 clues with
+**17 wrong cells**; after the fix below it reads **30 of 30, nothing wrong, nothing
+flagged**. Every synthetic fixture is unchanged, so the fix cost nothing.
+
+1. **The synthetic fixtures all had evenly spaced lines, and nothing else did.** Every
+   generated grid is drawn on an exact ninth. A person drawing a grid by hand does not do
+   that - in this photo the rightmost column is about 1.5x the width of the narrowest.
+   Twenty-one fixtures and a 100 % occupancy score had never once exercised uneven spacing.
+
+2. **Independent line snapping cannot survive that, and fails silently.** Each line was
+   snapped to the strongest peak within 35 % of its nominal ninth; a line further out than
+   that is simply never found, and the code falls back to the nominal position without any
+   signal that it did. Only 4 of 10 row lines and 5 of 10 column lines were found, and
+   cells were cut up to a third of a cell away from where they belonged - which is why
+   whole rows came out shifted sideways.
+
+3. **The fix is to choose all ten lines together, not one at a time.** The outer borders
+   are pinned by the warp, and the eight interior lines are placed by dynamic programming
+   to maximise total line evidence subject to every cell being between 0.55x and 1.75x a
+   nominal ninth. Uneven spacing becomes something the grid is allowed to have rather than
+   an error to be suppressed. The same photo now finds 10/10 column lines and 8/10 row
+   lines, with column drifts as large as 31 px correctly tracked.
+
+4. **The projection had to stop seeing digits.** Counting ink per row also counts glyphs,
+   and on an unevenly spaced grid a row of digits can outscore a real line. Ink now counts
+   towards a line only where it runs 7 pixels along it, after a one-pixel dilation across
+   the line so a wandering hand-drawn stroke still reads as continuous. A digit has no
+   7-pixel horizontal stroke; a grid line has one everywhere along its length.
+
+5. **One "error" was in the label, not the pipeline.** The transcription of the photo had
+   a clue one column to the left of where it sits. Worth remembering that with real
+   fixtures the ground truth is hand-entered and is itself a thing that can be wrong.
+
+## Findings from the second real photo
+
+A printed grid with handwritten answers, faint erased-pencil ghosting and 50 clues. It read
+**perfectly, first time** - the only fixture so far to exercise printed digits, a nearly
+full board, and ghost content all at once.
+
+1. **Do not re-encode fixture photos.** Saving it as JPEG at quality 88 cost two cells;
+   at quality 70, five; at quality 60, eleven. Almost every induced error was *false ink*:
+   compression ringing around the erased pencil crossing the ink threshold. Fixtures now
+   store original bytes, and the fixtures README says why.
+
+2. **Two attempts to let grid lines bend both measured worse, and were reverted.**
+   `real-01` has a hand-drawn row line that slopes by most of a cell across the grid and
+   cuts a digit in half, so following the bend looked obviously right. Free per-band
+   placement snapped onto digit strokes instead - a 7's crossbar has the same horizontal
+   run as a line - and took the printed fixture from 0 wrong cells to 5. A constrained
+   least-squares slope fit was better but still found slopes in printed grids that have
+   none: 0 wrong to 4. The straight-line model wins on the evidence and stays. The reason
+   is recorded in `vision.js` beside the code, so the idea is not re-attempted blind.
+
+3. **The one remaining real-photo error is a genuinely marginal cell**, and it is flagged.
+   `real-01` r1c9 sits where the sloping line clips it; a JPEG copy of the same photo reads
+   it correctly and the webp original does not. It is stored as the webp: choosing the
+   copy that scores better would be measuring the wrong thing.
+
 ## 9. Known risks
 
 - **Grid detection on low-contrast or heavily shadowed photos** — mitigated by the sanity gate and
@@ -403,4 +463,4 @@ Three things the fixtures taught us that the plan did not anticipate:
 - [x] **Step 6** — UI, conflicts, solver repair. Clue recall **99.8 %**, digit accuracy
       **99.0 %**, **7** wrong cells of 610 and **all 7 flagged**, **17/21** grids exactly
       right after repair. Photo import works by file, drag-drop or paste.
-- [ ] Step 7 — threshold tuning
+- [ ] Step 7 — threshold tuning (still wants more real photos)

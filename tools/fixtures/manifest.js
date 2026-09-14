@@ -8,6 +8,28 @@
 // board:   81 chars, row-major, '.' = empty
 // corners: grid corners in image pixels, in TL, TR, BR, BL order - omit if unknown
 window.SUDOKU_FIXTURES = [
+
+  {
+    "file": "real-01-handwritten-paper.webp",
+    "board": "..7.4...8.143.....62.1....9..68.....4...1...5..1..42..1....7.56.....39717...913..",
+    "tags": [
+      "real",
+      "handwriting",
+      "paper"
+    ],
+    "notes": "hand-drawn grid on creased paper, phone photo. Stored as the original webp, not re-encoded: a JPEG copy of it reads r1c9 correctly where this does not, and picking the easier copy would be measuring the wrong thing."
+  },
+  {
+    "file": "real-02-printed-pencil.jpg",
+    "board": "582..3....46...328.3...8.653587....6614389572279..483186.49.2534238.5....95.3..8.",
+    "tags": [
+      "real",
+      "print",
+      "handwriting",
+      "dense"
+    ],
+    "notes": "printed grid, handwritten answers, faint erased-pencil ghosting, 50 clues. Original bytes - re-encoding at q88 turns ghosting into false ink."
+  },
   {
     "file": "syn-01-screenshot-clean-a.jpg",
     "board": ".3..7.128.9...346.71...8.9..27.3.......16.....8.45...6...32..5...5.8...237....8.1",
@@ -606,4 +628,5 @@ window.SUDOKU_FIXTURES = [
     ],
     "notes": ""
   }
+
 ];

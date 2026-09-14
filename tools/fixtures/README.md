@@ -54,10 +54,29 @@ scores 100 % here and 60 % on photos is the expected failure, not a surprise.
 
 ## Adding real photos
 
-1. Drop the image in this folder. Name it `real-NN-something.jpg`.
+**Store the original bytes. Do not re-encode.** Re-saving a photo as JPEG changes what
+the pipeline sees, and on faint content it changes the answer: re-encoding
+`real-02` at quality 88 turns erased-pencil ghosting into false ink and costs two cells;
+at quality 60 it costs eleven. `real-01` is kept as the webp it arrived as, even though a
+JPEG copy of it happens to read one cell *better* - picking the copy that scores well is
+measuring the wrong thing.
+
+1. Drop the image in this folder, in whatever format it arrived. Name it
+   `real-NN-something.<ext>`; browsers decode webp, png and jpeg alike.
 2. Open `tools/label-fixture.html`, load the image, type the 81 clues, optionally
    click the four grid corners, and copy the generated manifest entry.
 3. Paste it into the array in `manifest.js`, anywhere before the synthetic block.
+
+### What real photos have already caught
+
+Two of them, between them, found more than the whole synthetic set:
+
+- **Uneven grid spacing** (`real-01`). Every generated fixture draws its lines on exact
+  ninths; a hand-drawn grid does not, and the rightmost column was 1.5x the narrowest.
+  Independent per-line snapping could not find lines that far from nominal and silently
+  fell back to the nominal position, shifting whole rows sideways. 17 wrong cells.
+- **Thin margins on faint content** (`real-02`). Erased pencil and printed ghosting sit
+  close enough to the ink threshold that a mild re-encode flips cells.
 
 Aim for 15–20 real photos and bias them toward the cases that break things:
 a shot at 30°, one lit by a single lamp, one from a curved puzzle book, one of a
