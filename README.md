@@ -12,6 +12,14 @@ Both share the same approach: backtracking that stops at the first solution, wit
 pre-flight check that reports contradictory clues instead of searching a board that
 can never be solved.
 
+## Keyboard
+
+Click a cell, then type a digit; the arrow keys move around the grid and backspace
+clears a cell. **Cmd+Z** undoes the last change to the clues and **Shift+Cmd+Z** redoes
+it (**Ctrl** instead of **Cmd** on Windows and Linux, where **Ctrl+Y** also redoes).
+Undo covers everything that changes the clues, so a photo import or a **Clear** rewinds
+in one step, amber "unsure" marks and all.
+
 ## Reading a puzzle from a photo
 
 Open `index.html`, then pick a photo, drop one on the page, or paste one. The grid fills

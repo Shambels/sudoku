@@ -175,7 +175,12 @@ function readGrid(inputs) {
   return grid;
 }
 
-function keyBindings() {
+function keyBindings(event) {
+  // Cmd/Ctrl combinations belong to the browser and to the undo shortcuts below;
+  // this handler is for bare keys only.
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
   event.preventDefault();
   const before = selected.value;
   switch (event.which) {
@@ -227,6 +232,7 @@ function keyBindings() {
   clearConflicts();
   if (selected.value !== before) {
     hideSolutionPanel();
+    recordHistory();
   }
 }
 
@@ -312,6 +318,101 @@ function highlightConflicts(conflicts) {
   conflicts.forEach(index => {
     clues[index].classList.add('conflict');
   });
+}
+
+// ---------------------------------------------------------------------------
+// Undo and redo.
+//
+// The history holds whole-board snapshots rather than a list of edits. A board is
+// 81 characters, so keeping every state outright costs nothing, and it removes a
+// class of bug with it: there is no inverse operation to get wrong, so undoing a
+// photo import or a Clear works exactly the way undoing a keystroke does.
+//
+// The amber "unsure about this one" marks travel with the snapshot. Undoing back
+// to a freshly read photo should look like that photo was just read, warnings and
+// all, rather than like the same digits typed in by hand.
+var HISTORY_LIMIT = 200;
+var editHistory = { entries: [], index: -1, applying: false };
+
+function snapshotBoard() {
+  let board = '';
+  let uncertain = '';
+  clues.forEach(spot => {
+    board += spot.value ? spot.value.slice(0, 1) : '.';
+    uncertain += spot.classList.contains('uncertain') ? '1' : '0';
+  });
+  return board + '|' + uncertain;
+}
+
+function applySnapshot(snapshot) {
+  const board = snapshot.slice(0, size * size);
+  const uncertain = snapshot.slice(size * size + 1);
+  clues.forEach((spot, index) => {
+    spot.value = board[index] === '.' ? '' : board[index];
+    spot.classList.toggle('uncertain', uncertain[index] === '1');
+    spot.classList.remove('conflict');
+  });
+}
+
+// Called after a change, not before it: the entry at `index` is always what the
+// board looks like right now, which is what makes the equality check below a
+// reliable way to ignore edits that changed nothing.
+function recordHistory() {
+  if (editHistory.applying || !clues.length) {
+    return;
+  }
+  const snapshot = snapshotBoard();
+  if (editHistory.entries[editHistory.index] === snapshot) {
+    return;
+  }
+  editHistory.entries.length = editHistory.index + 1;   // a new edit drops the redo tail
+  editHistory.entries.push(snapshot);
+  if (editHistory.entries.length > HISTORY_LIMIT) {
+    editHistory.entries.shift();
+  }
+  editHistory.index = editHistory.entries.length - 1;
+}
+
+function stepHistory(offset) {
+  const next = editHistory.index + offset;
+  if (next < 0 || next >= editHistory.entries.length) {
+    return false;
+  }
+  editHistory.index = next;
+  editHistory.applying = true;      // restoring a state is not itself a new state
+  applySnapshot(editHistory.entries[next]);
+  editHistory.applying = false;
+  hideSolutionPanel();
+  return true;
+}
+
+// Cmd+Z / Ctrl+Z to undo, Shift with it to redo, plus Ctrl+Y for the Windows habit.
+//
+// The listener captures rather than bubbles, so it runs before the cell's own key
+// handler and before the browser's built-in per-input undo, which would otherwise
+// rewind one text field while the other eighty stayed where they were.
+function setupHistoryShortcuts() {
+  if (!clues.length) {
+    return;
+  }
+  recordHistory();              // the empty board is a state worth coming back to
+  document.addEventListener('keydown', event => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+      return;
+    }
+    const key = (event.key || '').toLowerCase();
+    let offset;
+    if (key === 'z') {
+      offset = event.shiftKey ? 1 : -1;
+    } else if (key === 'y' && !event.shiftKey) {
+      offset = 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    stepHistory(offset);
+  }, true);
 }
 
 function findEmptySpot(grid) {
@@ -638,6 +739,7 @@ function readPhoto(source, corners) {
     findConflicts(grid).forEach(index => doubt.add(index));
     repair.changed.forEach(([x, y]) => doubt.delete(y + (x * size)));
     markUncertain(Array.from(doubt).map(index => [Math.floor(index / size), index % size]));
+    recordHistory();
 
     let count = 0;
     grid.forEach(row => row.forEach(v => { if (v) { count++; } }));
@@ -912,6 +1014,7 @@ function clearAll() {
   if (status) {
     status.textContent = 'Pick a photo, drop one anywhere on the page, or paste one.';
   }
+  recordHistory();
 }
 
 function setup() {
@@ -929,6 +1032,7 @@ function setup() {
     element.addEventListener('input', () => {
       clearConflicts();
       hideSolutionPanel();
+      recordHistory();
     });
   }
 
@@ -974,6 +1078,7 @@ function start() {
 setup();
 setupPhotoImport();
 setupCornerPicking();
+setupHistoryShortcuts();
 if (solveBtn) {
   solveBtn.addEventListener('click', () => {
     start();
