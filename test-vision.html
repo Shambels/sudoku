@@ -111,6 +111,7 @@
   <div id="cards" class="cards"></div>
 
   <script src="tools/fixtures/manifest.js"></script>
+  <script src="digit-model.js"></script>
   <script src="vision.js"></script>
   <script>
     var FIXTURES = window.SUDOKU_FIXTURES || [];
@@ -164,6 +165,7 @@
       var s = {
         file: fixture.file, tags: fixture.tags || [], notes: fixture.notes || '',
         ok: result.ok, reason: result.reason, notImplemented: result.notImplemented,
+        msClassify: result.timings ? Math.round(result.timings.classify || 0) : null,
         gridSource: result.gridSource || null, gridRejected: result.gridRejected || null,
         stage: result.stage, ms: result.timings ? Math.round(result.timings.total) : null,
         clues: 0, falseInk: 0, missed: 0, digitTotal: 0, digitRight: 0,
