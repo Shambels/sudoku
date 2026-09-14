@@ -120,13 +120,20 @@ def digit_tile(digit, font, rng, handwritten):
         w = bbox[2] - bbox[0]
         h = bbox[3] - bbox[1]
         stroke = max(3, int(h * 0.055))
+        # A crossed 7 carries a SHORT bar through the middle of the diagonal. An
+        # earlier version ran it past both edges of the glyph, which produced a
+        # struck-through dash 2.2x wider than it was tall - a fixture that tested
+        # nothing real. Keep the bar inside the glyph's own width.
         if digit == 7 and rng.random() < 0.8:
-            y = bbox[1] + h * 0.55
-            draw.line([(bbox[0] - w * 0.12, y), (bbox[2] + w * 0.12, y)], fill=0, width=stroke)
+            y = bbox[1] + h * 0.52
+            cx = bbox[0] + w * 0.55
+            half = w * 0.30
+            draw.line([(cx - half, y), (cx + half, y)], fill=0, width=stroke)
         if digit == 1 and rng.random() < 0.7:
             y = bbox[3]
             cx = bbox[0] + w / 2
-            draw.line([(cx - h * 0.22, y), (cx + h * 0.22, y)], fill=0, width=stroke)
+            half = max(w * 0.55, h * 0.13)
+            draw.line([(cx - half, y), (cx + half, y)], fill=0, width=stroke)
 
         angle = rng.uniform(-11, 11)
         shear = rng.uniform(-0.18, 0.18)

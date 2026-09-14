@@ -20,7 +20,7 @@ var SudokuVision = (function () {
     thresholdWindowDivisor: 12,   // window = round(width / divisor), forced odd
     thresholdBias: 0.92,          // ink when pixel < bias * windowMean
     autoPolarity: true,           // dark-mode screenshots are light ink on dark paper
-    polarityInkLimit: 0.35,       // above this ink fraction, the image is inverted
+    polarityBrightFraction: 0.30, // below this share of above-mean pixels, invert
 
     // 2.3 grid detection
     minGridAreaFraction: 0.15,    // largest blob must cover this much of the frame
@@ -33,10 +33,20 @@ var SudokuVision = (function () {
     cellSize: 48,                 // warped grid is 9 * cellSize square
 
     // 2.5 cell segmentation
+    warpedWindowDivisor: 12,      // threshold window for the warped image
+    warpedThresholdBias: 0.93,    // separate from thresholdBias: the warped image is
+                                  // about digit shape, the full frame about finding lines.
+                                  // Swept 0.78-0.96 against counter survival in 4/6/8/9:
+                                  // tightening it does not thin strokes, it breaks the
+                                  // loops, so the counters leak away instead of opening.
+    lineSearchFraction: 0.35,     // how far a grid line may sit from its nominal place
+    minLineStrength: 0.35,        // a real line inks this share of the image's width
+    minLineSpacing: 0.55,         // of nominal, before a line is treated as spurious
     cellInset: 0.12,              // fraction trimmed off each side of a cell
     centerBoxFraction: 0.50,      // component must overlap this central box
-    minInkFraction: 0.03,         // of the inset cell's area
-    minDigitBox: 6,               // px, in warped space
+    minInkFraction: 0.010,        // of the inset cell's area
+    minDigitHeight: 0.30,         // of the cell's height - every digit is near full height
+    minDigitBox: 4,               // px, an absolute floor for very small cells
 
     // 2.6 normalization
     digitBox: 20,                 // longer side of the digit, MNIST-style
@@ -192,6 +202,19 @@ var SudokuVision = (function () {
   // -> { ink: Uint8Array (1 = ink), width, height, inverted, inkFraction }
   function adaptiveThreshold(img, opts) {
     var w = img.width, h = img.height, g = img.gray;
+
+    // Polarity has to be settled here, on the grayscale. Flipping the binary image
+    // afterwards does not work: on a light-on-dark image the local mean around each
+    // bright line makes a halo of "ink" either side of it, and the untouched island
+    // left in the middle of each cell becomes a convincing fake digit once flipped.
+    var inverted = false;
+    if (opts.autoPolarity && isLightOnDark(g, opts)) {
+      var flipped = new Uint8ClampedArray(g.length);
+      for (var q = 0; q < g.length; q++) { flipped[q] = 255 - g[q]; }
+      g = flipped;
+      inverted = true;
+    }
+
     var stride = w + 1;
     var integral = new Float64Array(stride * (h + 1));
     var x, y, i, rowSum;
@@ -224,18 +247,20 @@ var SudokuVision = (function () {
       }
     }
 
-    // A grid plus its clues is a few percent ink. Much more than that means the
-    // image is light-on-dark (a dark-mode screenshot), so flip it and carry on
-    // rather than handing the detector a frame-filling background blob.
-    var fraction = count / (w * h);
-    var inverted = false;
-    if (opts.autoPolarity && fraction > opts.polarityInkLimit) {
-      for (i = 0; i < ink.length; i++) { ink[i] = ink[i] ? 0 : 1; }
-      inverted = true;
-      fraction = 1 - fraction;
-    }
+    return { ink: ink, width: w, height: h, inverted: inverted,
+             inkFraction: count / (w * h) };
+  }
 
-    return { ink: ink, width: w, height: h, inverted: inverted, inkFraction: fraction };
+  // Ink is the minority of any page. If most pixels sit below the mean, the image
+  // is light-on-dark. Measured across the fixtures the two populations are far
+  // apart - normal images never fall below 0.53, a dark-mode screenshot reads 0.09 -
+  // so the 0.30 default has roughly 4x margin in both directions.
+  function isLightOnDark(g, opts) {
+    var n = g.length, i, sum = 0, above = 0;
+    for (i = 0; i < n; i++) { sum += g[i]; }
+    var mean = sum / n;
+    for (i = 0; i < n; i++) { if (g[i] > mean) { above++; } }
+    return above / n < opts.polarityBrightFraction;
   }
 
   // 2.3 The grid's border and lines form one big 8-connected blob. Label the
@@ -467,9 +492,234 @@ var SudokuVision = (function () {
     return out;
   }
 
-  // 2.5 / 2.6 -> { cells: [{ row, col, empty, bitmap28 }] x81 }
-  function extractCells(/* warped, opts */) {
-    throw notImplemented('extractCells', '2.5');
+  // 2.5 Cut the warped square into 81 cells and decide which hold a digit.
+  // -> { cells: [{row, col, empty, bitmap28, ...}] x81, lines, binary }
+  function extractCells(warped, opts) {
+    var size = warped.size;
+    // Re-threshold after the warp rather than warping the binary image: resampling
+    // hard edges turns them to mush. adaptiveThreshold also re-applies the polarity
+    // check here, because the warp carries the original grayscale - a dark-mode
+    // screenshot is still light-on-dark at this point.
+    var cellOpts = options(opts);
+    cellOpts.thresholdWindowDivisor = opts.warpedWindowDivisor;
+    cellOpts.thresholdBias = opts.warpedThresholdBias;
+    var bin = adaptiveThreshold(warped.gray, cellOpts);
+    var lines = findGridLines(bin, size, opts);
+
+    var cells = [], r, c;
+    for (r = 0; r < 9; r++) {
+      for (c = 0; c < 9; c++) {
+        cells.push(readCell(bin, size, lines, r, c, opts));
+      }
+    }
+    return { cells: cells, lines: lines, binary: bin };
+  }
+
+  // A homography pins the four corners exactly but cannot flatten a curled page,
+  // so the interior lines of a real photo drift from their nominal ninths. Snap
+  // each line to the nearest peak in the ink projection instead of assuming.
+  function findGridLines(bin, size, opts) {
+    var rowSum = new Int32Array(size), colSum = new Int32Array(size);
+    var x, y, i;
+    for (y = 0; y < size; y++) {
+      for (x = 0; x < size; x++) {
+        i = y * size + x;
+        if (bin.ink[i]) { rowSum[y]++; colSum[x]++; }
+      }
+    }
+    return { rows: pickLines(rowSum, size, opts), cols: pickLines(colSum, size, opts) };
+  }
+
+  function pickLines(projection, size, opts) {
+    var nominal = size / 9;
+    var radius = Math.max(2, Math.round(nominal * opts.lineSearchFraction));
+    var floor = opts.minLineStrength * size;
+    var out = [], snapped = 0, k, expected, lo, hi, i, bestAt, bestVal;
+
+    for (k = 0; k <= 9; k++) {
+      expected = k * nominal;
+      lo = Math.max(0, Math.round(expected) - radius);
+      hi = Math.min(size - 1, Math.round(expected) + radius);
+      bestAt = -1; bestVal = -1;
+      for (i = lo; i <= hi; i++) {
+        if (projection[i] > bestVal) { bestVal = projection[i]; bestAt = i; }
+      }
+      if (bestVal < floor) { out.push(expected); continue; }  // no line here, trust nominal
+      out.push(peakCentre(projection, bestAt, bestVal, lo, hi));
+      snapped++;
+    }
+
+    // A line that lands on top of its neighbour is a misfire, not a discovery.
+    for (k = 1; k <= 9; k++) {
+      if (out[k] - out[k - 1] < nominal * opts.minLineSpacing) {
+        out[k] = Math.min(size, out[k - 1] + nominal);
+      }
+    }
+    out.snapped = snapped;
+    return out;
+  }
+
+  // Sub-pixel centre: the weighted centroid of the contiguous run around the peak
+  // that stays above half its height. A thick box-boundary line is several pixels
+  // wide, and its centre matters more than which single pixel scored highest.
+  function peakCentre(projection, at, peak, lo, hi) {
+    var half = peak * 0.5, i;
+    var from = at, to = at;
+    while (from > lo && projection[from - 1] >= half) { from--; }
+    while (to < hi && projection[to + 1] >= half) { to++; }
+    var weight = 0, sum = 0;
+    for (i = from; i <= to; i++) { weight += projection[i]; sum += i * projection[i]; }
+    return weight ? sum / weight : at;
+  }
+
+  function readCell(bin, size, lines, r, c, opts) {
+    var x0 = lines.cols[c], x1 = lines.cols[c + 1];
+    var y0 = lines.rows[r], y1 = lines.rows[r + 1];
+    var insetX = (x1 - x0) * opts.cellInset, insetY = (y1 - y0) * opts.cellInset;
+    var ax = Math.max(0, Math.round(x0 + insetX));
+    var ay = Math.max(0, Math.round(y0 + insetY));
+    var bx = Math.min(size - 1, Math.round(x1 - insetX));
+    var by = Math.min(size - 1, Math.round(y1 - insetY));
+
+    var cell = { row: r, col: c, empty: true, bitmap28: null, pixels: 0,
+                 inkFraction: 0, box: { x: ax, y: ay, w: bx - ax + 1, h: by - ay + 1 },
+                 digitBox: null, reason: null };
+    if (cell.box.w < 4 || cell.box.h < 4) { cell.reason = 'cell too small'; return cell; }
+
+    var kept = digitMask(bin, size, ax, ay, bx, by, opts);
+    cell.pixels = kept.pixels;
+    cell.inkFraction = kept.pixels / (cell.box.w * cell.box.h);
+
+    if (!kept.pixels) { cell.reason = 'no component near the centre'; return cell; }
+    if (cell.inkFraction < opts.minInkFraction) { cell.reason = 'too little ink'; return cell; }
+    // Height, not ink area, is what separates a digit from a speck: a 1 or a 7 inks
+    // barely 2% of its cell, but every digit from 1 to 9 stands near full height.
+    // Judging by ink alone was dropping exactly those two glyphs.
+    if (kept.bbox.h < opts.minDigitHeight * cell.box.h) { cell.reason = 'too short'; return cell; }
+    if (kept.bbox.h < opts.minDigitBox) { cell.reason = 'speck'; return cell; }
+
+    cell.empty = false;
+    cell.digitBox = kept.bbox;
+    cell.bitmap28 = normalizeDigit(kept.mask, cell.box.w, cell.box.h, kept.bbox, opts);
+    return cell;
+  }
+
+  // Components inside one cell, filtered down to what is plausibly a digit.
+  // A raw ink count would call a thick grid line a 1 and a faint pencil 7 an empty,
+  // so the decision is made on components instead.
+  function digitMask(bin, size, ax, ay, bx, by, opts) {
+    var w = bx - ax + 1, h = by - ay + 1;
+    var seen = new Uint8Array(w * h);
+    var mask = new Uint8Array(w * h);
+    var margin = (1 - opts.centerBoxFraction) / 2;
+    var cx0 = w * margin, cx1 = w * (1 - margin);
+    var cy0 = h * margin, cy1 = h * (1 - margin);
+    var stack = new Int32Array(w * h);
+    var kept = 0, bbox = null, x, y, i;
+
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) {
+        i = y * w + x;
+        if (seen[i] || !bin.ink[(ay + y) * size + (ax + x)]) { continue; }
+
+        // flood fill, 8-connected, iterative - recursion would blow the stack on
+        // a cell that is mostly ink
+        var top = 0, pixels = [], minX = x, maxX = x, minY = y, maxY = y;
+        stack[top++] = i; seen[i] = 1;
+        while (top) {
+          var p = stack[--top];
+          var px = p % w, py = (p / w) | 0;
+          pixels.push(p);
+          if (px < minX) { minX = px; } if (px > maxX) { maxX = px; }
+          if (py < minY) { minY = py; } if (py > maxY) { maxY = py; }
+          for (var dy = -1; dy <= 1; dy++) {
+            for (var dx = -1; dx <= 1; dx++) {
+              var nx = px + dx, ny = py + dy;
+              if (nx < 0 || ny < 0 || nx >= w || ny >= h) { continue; }
+              var ni = ny * w + nx;
+              if (seen[ni] || !bin.ink[(ay + ny) * size + (ax + nx)]) { continue; }
+              seen[ni] = 1; stack[top++] = ni;
+            }
+          }
+        }
+
+        // A grid-line remnant runs edge to edge; a digit does not.
+        var spansX = minX === 0 && maxX === w - 1;
+        var spansY = minY === 0 && maxY === h - 1;
+        if (spansX || spansY) { continue; }
+        // Must reach into the middle of the cell, or it is a neighbour bleeding in.
+        if (maxX < cx0 || minX > cx1 || maxY < cy0 || minY > cy1) { continue; }
+
+        for (var k = 0; k < pixels.length; k++) { mask[pixels[k]] = 1; }
+        kept += pixels.length;
+        bbox = bbox
+          ? { x: Math.min(bbox.x, minX), y: Math.min(bbox.y, minY),
+              w: Math.max(bbox.x + bbox.w, maxX + 1) - Math.min(bbox.x, minX),
+              h: Math.max(bbox.y + bbox.h, maxY + 1) - Math.min(bbox.y, minY) }
+          : { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+      }
+    }
+    return { mask: mask, pixels: kept, bbox: bbox };
+  }
+
+  // 2.6 MNIST's own recipe: fit the digit's longer side to 20px, then centre it in
+  // a 28x28 field by centre of mass. Matching this at test time is what lets
+  // MNIST-trained weights transfer at all.
+  function normalizeDigit(mask, w, h, bbox, opts) {
+    var target = opts.digitBox, box = opts.canvasBox;
+    var scale = target / Math.max(bbox.w, bbox.h);
+    var nw = Math.max(1, Math.round(bbox.w * scale));
+    var nh = Math.max(1, Math.round(bbox.h * scale));
+    var small = areaResize(mask, w, h, bbox, nw, nh);
+
+    var sum = 0, sx = 0, sy = 0, x, y, v;
+    for (y = 0; y < nh; y++) {
+      for (x = 0; x < nw; x++) {
+        v = small[y * nw + x];
+        sum += v; sx += x * v; sy += y * v;
+      }
+    }
+    var comX = sum ? sx / sum : nw / 2;
+    var comY = sum ? sy / sum : nh / 2;
+    // (box - 1) / 2, not box / 2: the centre of a 28-index grid is 13.5, and the
+    // half-pixel difference is a systematic bias the classifier would have to learn around
+    var centre = (box - 1) / 2;
+    var offX = Math.round(centre - comX);
+    var offY = Math.round(centre - comY);
+
+    var out = new Float32Array(box * box);
+    for (y = 0; y < nh; y++) {
+      var ty = y + offY;
+      if (ty < 0 || ty >= box) { continue; }
+      for (x = 0; x < nw; x++) {
+        var tx = x + offX;
+        if (tx < 0 || tx >= box) { continue; }
+        out[ty * box + tx] = small[y * nw + x];
+      }
+    }
+    return out;
+  }
+
+  // Box filter, not nearest neighbour: averaging the source footprint is what turns
+  // a hard mask into the soft grey strokes MNIST digits actually have.
+  function areaResize(mask, w, h, bbox, nw, nh) {
+    var out = new Float32Array(nw * nh);
+    var sxStep = bbox.w / nw, syStep = bbox.h / nh;
+    var ox, oy, x, y, sum, count, x0, x1, y0, y1;
+    for (oy = 0; oy < nh; oy++) {
+      y0 = Math.floor(bbox.y + oy * syStep);
+      y1 = Math.max(y0 + 1, Math.ceil(bbox.y + (oy + 1) * syStep));
+      for (ox = 0; ox < nw; ox++) {
+        x0 = Math.floor(bbox.x + ox * sxStep);
+        x1 = Math.max(x0 + 1, Math.ceil(bbox.x + (ox + 1) * sxStep));
+        sum = 0; count = 0;
+        for (y = y0; y < y1 && y < h; y++) {
+          for (x = x0; x < x1 && x < w; x++) { sum += mask[y * w + x]; count++; }
+        }
+        out[oy * nw + ox] = count ? sum / count : 0;
+      }
+    }
+    return out;
   }
 
   // 3 -> { digit, confidence, candidates: [[digit, p], [digit, p]] }
@@ -556,7 +806,12 @@ var SudokuVision = (function () {
 
         var cells = extractCells(warped, opts);
         t.cells = lap();
-        if (opts.debug) { result.debug.cells = cells.cells; }
+        if (opts.debug) {
+          result.debug.cells = cells.cells;
+          result.debug.lines = cells.lines;
+          result.debug.warpedBinary = binaryToCanvas(cells.binary.ink, warped.size, warped.size);
+          result.debug.warpedInverted = cells.binary.inverted;
+        }
 
         var i, cell, guess, r, c;
         for (i = 0; i < cells.cells.length; i++) {
@@ -622,6 +877,8 @@ var SudokuVision = (function () {
       findGrid: findGrid,
       warpToSquare: warpToSquare,
       extractCells: extractCells,
+      findGridLines: findGridLines,
+      normalizeDigit: normalizeDigit,
       classify: classify
     }
   };
